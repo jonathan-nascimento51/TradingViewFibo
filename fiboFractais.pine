@@ -21,6 +21,10 @@ maxFractalsToCheck = input.int(50,      "Máx. Fractais a Checar",              
 
 topN               = input.int(0,       "Mostrar Top N Níveis (0=OFF)",        minval=0, maxval=10)
 
+// Comprimentos das MAs para cálculo de viés
+biasShortLen       = input.int(10,      "Período MA Curta (Bias)",             minval=1)
+biasLongLen        = input.int(50,      "Período MA Longa (Bias)",             minval=1)
+
 // Novos inputs solicitados
 autoHideLow        = input.bool(false,  "Auto‐Hide Low Weights em TF ≤ X")                 // habilita/ desabilita filtro de peso baixo
 tfHideThresh       = input.int(60,      "TF Limite para Auto‐Hide (minutos)",  minval=1)   // em minutos
@@ -104,12 +108,12 @@ calcWeight(_price, _count) =>
     (_count + 1) * math.log(math.abs(z) + 1)
 
 //===================================================================
-// 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MA10/MA50
+// 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MAs CURTA E LONGA
 // ==================================================================
 biasFilter() =>
     float dClose = request.security(syminfo.tickerid, "D", close)
-    float ema10  = ta.ema(dClose, 10)
-    float ema50  = ta.ema(dClose, 50)
+    float ema10  = ta.ema(dClose, biasShortLen)
+    float ema50  = ta.ema(dClose, biasLongLen)
     if na(ema10) or na(ema50)
         0
     else
@@ -463,7 +467,9 @@ if barstate.isfirst
     table.cell(tableStatus, 0, 6, "Signif. Mín (peso)",   text_color=color.white)
     table.cell(tableStatus, 0, 7, "Período Fractal (n)",  text_color=color.white)
     table.cell(tableStatus, 0, 8, "Top N Níveis",         text_color=color.white)
-    table.cell(tableStatus, 0, 9, "Bias MA10/50",         text_color=color.white)
+    
+    string biasHeading = "Bias MA" + str.tostring(biasShortLen) + "/" + str.tostring(biasLongLen)
+    table.cell(tableStatus, 0, 9, biasHeading,            text_color=color.white)
 
 string atrTxt   = "ATR(" + str.tostring(atrLength) + ")"
 string atrVal   = str.tostring(atrValue, "#.##")
