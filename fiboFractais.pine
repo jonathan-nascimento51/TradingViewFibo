@@ -64,6 +64,8 @@ var linefill[] zoneFills     = array.new_linefill()   // linefills para zonas (l
 
 var float lastHigh = na   // último pivot high (H1)
 var float lastLow  = na   // último pivot low (H1)
+var int   lastHighBar = na  // bar_index do último pivot high
+var int   lastLowBar  = na  // bar_index do último pivot low
 
 // Variável global para armazenar, a cada swing, o maxWeight calculado
 var float lastMaxWeight = 0.0
@@ -97,18 +99,18 @@ calcWeight(_price, _count) =>
     float z = calcZscore(_price)
     (_count + 1) * math.log(math.abs(z) + 1)
 
-// ==================================================================
+//===================================================================
 // 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MA10/MA50
 // ==================================================================
 biasFilter() =>
     float dClose = request.security(syminfo.tickerid, "D", close)
-    float ma10   = ta.sma(dClose, 10)
-    float ma50   = ta.sma(dClose, 50)
-    if na(ma10) or na(ma50)
+    float ema10  = ta.ema(dClose, 10)
+    float ema50  = ta.ema(dClose, 50)
+    if na(ema10) or na(ema50)
         0
     else
-        float diffPct = math.abs(ma10 - ma50) / dClose
-        diffPct < 0.005 ? 0 : ma10 > ma50 ? 1 : ma10 < ma50 ? -1 : 0
+        float diffPct = math.abs(ema10 - ema50) / dClose
+        diffPct < 0.005 ? 0 : ema10 > ema50 ? 1 : ema10 < ema50 ? -1 : 0
 
 float biasVal   = biasFilter()
 string biasTxt  = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
@@ -137,7 +139,7 @@ addFractal(_price) =>
 // ==================================================================
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
 // ==================================================================
-updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWidth, _styleLine) =>
+updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWidth, _styleLine, _trendDir) =>
     line  fibLine       = array.get(fibLines, _index)
     label fibPriceLabel  = array.get(fibLabels, _index)
     label fibCircleLabel  = array.get(circleLabels, _index)
@@ -152,7 +154,7 @@ updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWid
         line.set_style(fibLine, _styleLine)
         line.set_extend(fibLine, extend.right)
 
-        float pct  = (rangeVal > 0) ? math.round(100 * (_priceF - bottomVal) / rangeVal, 2) : na
+        float pct  = (rangeVal > 0) ? (_trendDir == -1 ? math.round(100 * (topVal - _priceF) / rangeVal, 2) : math.round(100 * (_priceF - bottomVal) / rangeVal, 2)) : na
         string txtW = str.tostring(pct, "#.##") + "% | Peso: " + str.tostring(_weight, "#.##")
         label.set_text(fibPriceLabel, txtW)
         label.set_color(fibPriceLabel, color.new(_baseColor, 30))
@@ -243,6 +245,7 @@ if not na(pivotHighH1)
         swingsCount += 1
         array.push(swingBars, bar_index)
     lastHigh := pivotHighH1
+    lastHighBar := bar_index
     topVal    := math.max(lastHigh, lastLow)
     bottomVal := math.min(lastHigh, lastLow)
     rangeVal  := topVal - bottomVal
@@ -252,6 +255,7 @@ if not na(pivotLowH1)
         swingsCount += 1
         array.push(swingBars, bar_index)
     lastLow := pivotLowH1
+    lastLowBar := bar_index
     topVal    := math.max(lastHigh, lastLow)
     bottomVal := math.min(lastHigh, lastLow)
     rangeVal  := topVal - bottomVal
@@ -294,7 +298,7 @@ float threshold = minSignificance
 int[] topIndices = array.new_int()
 
 // Função auxiliar para verificar se um nível/zona deve ser exibido
-isDisplayAllowed(_w, _pctW, _idx) =>
+isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
     bool ok = true
     if replayMode and array.size(swingBars) > 0
         int swingBarIdx = array.get(swingBars, replayStartIdx)
@@ -306,12 +310,18 @@ isDisplayAllowed(_w, _pctW, _idx) =>
         ok := false
     if ok and topN == 0 and _w < threshold
         ok := false
+    if ok
+        if biasVal == 1 and _lvlFrac <= 1 and _lvlFrac != 1
+            ok := false
+        if biasVal == -1 and _lvlFrac >= 1 and _lvlFrac != 1
+            ok := false
     ok
 
 if not na(lastHigh) and not na(lastLow)
+    int trendDir = biasVal != 0 ? int(biasVal) : (not na(lastLowBar) and not na(lastHighBar) ? (lastLowBar > lastHighBar ? 1 : -1) : 0)
     for i = 0 to levelsCount - 1
         float lvlFrac  = array.get(fibLevels, i)
-        float lvlPrice = bottomVal + rangeVal * lvlFrac
+        float lvlPrice = trendDir == -1 ? topVal - rangeVal * lvlFrac : bottomVal + rangeVal * lvlFrac
         array.set(fibPrices, i, lvlPrice)
 
     // ==================================================================
@@ -385,11 +395,11 @@ if not na(lastHigh) and not na(lastLow)
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
 
             // ==== FILTROS ====
-            bool validLevel = isDisplayAllowed(weight, pctW, i)
+            bool validLevel = isDisplayAllowed(weight, pctW, i, lvlFrac)
 
             if not validLevel
                 // Esconde linha, label e círculo
-                updateFibLineAndLabel(i, false, priceF, weight, color.gray, 1, line.style_dotted)
+                updateFibLineAndLabel(i, false, priceF, weight, color.gray, 1, line.style_dotted, trendDir)
                 continue
 
             // ==== COR E ESTILO ====
@@ -402,7 +412,7 @@ if not na(lastHigh) and not na(lastLow)
 
             styleLine = (isTop or lvlFrac == 0.0 or lvlFrac == 1.0) ? line.style_solid : line.style_dotted
 
-            updateFibLineAndLabel(i, true, priceF, weight, baseColor, lw, styleLine)
+            updateFibLineAndLabel(i, true, priceF, weight, baseColor, lw, styleLine, trendDir)
 
     // ==================================================================
     // 12.D) REAPROVEITAMENTO DE PLACEHOLDERS PARA ZONAS DE CONFLUÊNCIA
@@ -412,12 +422,13 @@ if not na(lastHigh) and not na(lastLow)
             float priceF   = array.get(fibPrices, i)
             float weight   = array.get(fibWeights, i)
             float distPct  = calcDist(priceF)
+            float lvlFrac  = array.get(fibLevels, i)
             float lowZone  = priceF - distPct
             float highZone = priceF + distPct
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
 
             // ==== FILTROS ====
-            bool validZone = isDisplayAllowed(weight, pctW, i)
+            bool validZone = isDisplayAllowed(weight, pctW, i, lvlFrac)
 
             if not validZone
                 updateFibZone(i, false, lowZone, highZone, color.blue, color.new(color.blue, 98))
@@ -497,7 +508,7 @@ if barstate.islast
         float pctWeightTbl = lastMaxWeight > 0 ? (wt / lastMaxWeight) : 0.0
 
         // Verifica se está incluído (mesmos filtros de 12.C e 12.D)
-        bool isIncluded = isDisplayAllowed(wt, pctWeightTbl, i)
+        bool isIncluded = isDisplayAllowed(wt, pctWeightTbl, i, lvlFrac)
 
         string nivelTxt = str.tostring(lvlFrac * 100, "#.##") + "%"
         string inclTxt  = isIncluded ? "Sim" : "Não"
@@ -505,7 +516,7 @@ if barstate.islast
         // Células: Nível (%), # Fractais, Z-score, Peso, Incluído?
         table.cell(tableWeights, 0, i + 1, nivelTxt,           text_color=color.white)
         table.cell(tableWeights, 1, i + 1, str.tostring(cont), text_color=color.white)
-        table.cell(tableWeights, 2, i + 1, str.tostring(zVal, "#.##"), text_color=color.white)
+        table.cell(tableWeights, 2, i + 1, str.tostring(math.abs(zVal), "#.##"), text_color=color.white)
 
         color cellBg = (wt == lastMaxWeight) ? color.new(color.red, 50) : (wt >= lastMaxWeight * 0.75) ? color.new(color.yellow, 50) : (wt >= lastMaxWeight * 0.50) ? color.new(color.green, 50) : color.new(color.blue, 80)
 
