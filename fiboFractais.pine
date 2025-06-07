@@ -141,33 +141,33 @@ updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWid
     label fpLabel  = array.get(fibLabels, _index)
     label circLbl  = array.get(circleLabels, _index)
 
-    if not _isVisible
-        line.set_extend(ln, extend.none)
-        label.set_xy(   fpLabel, bar_index + 1, _priceF )
-        label.set_text( fpLabel, "" )
-        label.set_color(fpLabel, color.new(color.gray, 100))
-        label.set_color(circLbl, color.new(color.gray, 100))
+    line.set_xy1(ln, bar_index,     _priceF)
+    line.set_xy2(ln, bar_index + 1, _priceF)
+    label.set_xy(fpLabel, bar_index + 1, _priceF)
 
-    line.set_xy1( ln, bar_index,     _priceF )
-    line.set_xy2( ln, bar_index + 1, _priceF )
-    line.set_color( ln, _baseColor )
-    line.set_width( ln, _lineWidth )
-    line.set_style( ln, _styleLine )
-    line.set_extend( ln, extend.right )
+    if _isVisible
+        line.set_color(ln, _baseColor)
+        line.set_width(ln, _lineWidth)
+        line.set_style(ln, _styleLine)
+        line.set_extend(ln, extend.right)
 
-    float pct  = (rangeVal > 0) ? math.round(100 * (_priceF - bottomVal) / rangeVal, 2) : na
-    string txtW = str.tostring(pct, "#.##") + "% | Peso: " + str.tostring(_weight, "#.##")
-    label.set_xy(   fpLabel, bar_index + 1, _priceF )
-    label.set_text( fpLabel, txtW )
-    label.set_color(fpLabel, color.new(_baseColor, 30))
+        float pct  = (rangeVal > 0) ? math.round(100 * (_priceF - bottomVal) / rangeVal, 2) : na
+        string txtW = str.tostring(pct, "#.##") + "% | Peso: " + str.tostring(_weight, "#.##")
+        label.set_text(fpLabel, txtW)
+        label.set_color(fpLabel, color.new(_baseColor, 30))
 
-    if _weight > lastMaxWeight * 0.50
-        int sizeC = math.round(5 * (_weight / lastMaxWeight)) + 1
-        label.set_xy(   circLbl, bar_index - 1, _priceF )
-        label.set_style(circLbl, label.style_circle)
-        label.set_size( circLbl, sizeC )
-        label.set_color(circLbl, color.new(_baseColor, 70))
+        if _weight > lastMaxWeight * 0.50
+            int sizeC = math.round(5 * (_weight / lastMaxWeight)) + 1
+            label.set_xy(circLbl, bar_index - 1, _priceF)
+            label.set_style(circLbl, label.style_circle)
+            label.set_size(circLbl, sizeC)
+            label.set_color(circLbl, color.new(_baseColor, 70))
+        else
+            label.set_color(circLbl, color.new(color.gray, 100))
     else
+        line.set_extend(ln, extend.none)
+        label.set_text(fpLabel, "")
+        label.set_color(fpLabel, color.new(color.gray, 100))
         label.set_color(circLbl, color.new(color.gray, 100))
 
 // ==================================================================
@@ -178,20 +178,21 @@ updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor)
     line    l1p = array.get(zoneLinesLow, _index)
     line    l2p = array.get(zoneLinesHigh, _index)
 
-    if not _isVisible
+    line.set_xy1(l1p, bar_index,     _lowZone)
+    line.set_xy2(l1p, bar_index + 1, _lowZone)
+    line.set_xy1(l2p, bar_index,     _highZone)
+    line.set_xy2(l2p, bar_index + 1, _highZone)
+
+    if _isVisible
+        line.set_color(l1p, color.new(_borderColor, 60))
+        line.set_color(l2p, color.new(_borderColor, 60))
+        line.set_extend(l1p, extend.right)
+        line.set_extend(l2p, extend.right)
+        linefill.set_color(lf, _fillColor)
+    else
         line.set_extend(l1p, extend.none)
         line.set_extend(l2p, extend.none)
         linefill.set_color(lf, color.new(color.blue, 98))
-
-    line.set_xy1( l1p, bar_index,     _lowZone )
-    line.set_xy2( l1p, bar_index + 1, _lowZone )
-    line.set_xy1( l2p, bar_index,     _highZone )
-    line.set_xy2( l2p, bar_index + 1, _highZone )
-    line.set_color( l1p, color.new(_borderColor, 60) )
-    line.set_color( l2p, color.new(_borderColor, 60) )
-    line.set_extend(l1p, extend.right)
-    line.set_extend(l2p, extend.right)
-    linefill.set_color(lf, _fillColor)
 
 // ==================================================================
 // 7. COLETA DE FRACTAIS H1 (pivot high/low)
