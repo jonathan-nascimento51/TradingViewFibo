@@ -194,6 +194,65 @@ updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor)
     linefill.set_color(lf, _fillColor)
 
 // ==================================================================
+// 6.D FUNÇÃO PARA VERIFICAR SE UM NÍVEL ESTÁ VISÍVEL
+// ==================================================================
+isLevelVisible(_index, _weight, _pctW, _thresh, _topIdxArr) =>
+    bool visible = true
+
+    if replayMode and array.size(swingBars) > 0
+        int swingBarIdx = array.get(swingBars, currentSwingIdx)
+        if bar_index < swingBarIdx
+            visible := false
+
+    if visible and doAutoHide and _pctW < weightMinPct
+        visible := false
+
+    if visible and topN > 0 and not array.includes(_topIdxArr, _index)
+        visible := false
+
+    if visible and topN == 0 and _weight < _thresh
+        visible := false
+
+    visible
+
+// ==================================================================
+// 6.E FUNÇÃO PARA DESENHAR LINHAS/FRACIONAMENTOS
+// ==================================================================
+updateFibDrawing(_idx, _priceF, _weight, _lvlFrac, _pctW, _thresh, _topIdxArr) =>
+    bool drawLine = isLevelVisible(_idx, _weight, _pctW, _thresh, _topIdxArr)
+    if not drawLine
+        updateFibLineAndLabel(_idx, false, _priceF, _weight, color.gray, 1, line.style_dotted)
+        return
+
+    bool isTop    = (_weight == lastMaxWeight)
+    bool isHigh   = (_weight >= lastMaxWeight * 0.75) and not isTop
+    bool isMedium = (_weight >= lastMaxWeight * 0.50) and not (isTop or isHigh)
+
+    color baseColor = isTop ? color.red : isHigh ? color.yellow : isMedium ? color.green : color.new(color.blue, 80)
+    int lw = isTop ? 3 : isHigh ? 2 : 1
+    line_style styleLine = (isTop or _lvlFrac == 0.0 or _lvlFrac == 1.0) ? line.style_solid : line.style_dotted
+
+    updateFibLineAndLabel(_idx, true, _priceF, _weight, baseColor, lw, styleLine)
+
+// ==================================================================
+// 6.F FUNÇÃO PARA DESENHAR ZONAS DE CONFLUÊNCIA
+// ==================================================================
+updateZoneDrawing(_idx, _priceF, _weight, _lowZ, _highZ, _pctW, _thresh, _topIdxArr) =>
+    bool drawZone = isLevelVisible(_idx, _weight, _pctW, _thresh, _topIdxArr)
+    if not drawZone
+        updateFibZone(_idx, false, _lowZ, _highZ, color.blue, color.new(color.blue, 98))
+        return
+
+    bool isTop    = (_weight == lastMaxWeight)
+    bool isHigh   = (_weight >= lastMaxWeight * 0.75) and not isTop
+    bool isMedium = (_weight >= lastMaxWeight * 0.50) and not (isTop or isHigh)
+
+    color borderColor = isTop ? color.red : isHigh ? color.yellow : isMedium ? color.green : color.blue
+    color fillColor   = isTop ? color.new(color.red, 80) : isHigh ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
+
+    updateFibZone(_idx, true, _lowZ, _highZ, borderColor, fillColor)
+
+// ==================================================================
 // 7. COLETA DE FRACTAIS H1 (pivot high/low)
 // ==================================================================
 pivotHighH1 = request.security(syminfo.tickerid, "60", ta.pivothigh(high, n, n))
@@ -360,90 +419,26 @@ if not na(lastHigh) and not na(lastLow)
     // ==================================================================
     if showFibLines and maxWeight > 0
         for i = 0 to levelsCount - 1
-            float priceF   = array.get(fibPrices, i)
-            float weight   = array.get(fibWeights, i)
-            float lvlFrac  = array.get(fibLevels, i)
-            float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
+            float priceF      = array.get(fibPrices, i)
+            float weightVal   = array.get(fibWeights, i)
+            float lvlFrac     = array.get(fibLevels, i)
+            float pctWeight   = (lastMaxWeight > 0) ? (weightVal / lastMaxWeight) : 0.0
 
-            // ==== FILTROS ====
-            bool validLevel = true
-
-            // (A) ReplayMode: só desenha após pivot confirm
-            if replayMode and array.size(swingBars) > 0
-                int swingBarIdx = array.get(swingBars, currentSwingIdx)
-                if bar_index < swingBarIdx
-                    validLevel := false
-
-            // (B) Auto-Hide: TF baixo + peso muito baixo
-            if validLevel and doAutoHide and pctW < weightMinPct
-                validLevel := false
-
-            // (C) TopN ou threshold
-            if validLevel and topN > 0 and not array.includes(topIndices, i)
-                validLevel := false
-            
-            if validLevel and topN == 0 and weight < threshold
-                validLevel := false
-
-            if not validLevel
-                // Esconde linha, label e círculo
-                updateFibLineAndLabel(i, false, priceF, weight, color.gray, 1, line.style_dotted)
-                continue
-
-            // ==== COR E ESTILO ====
-            bool isTop    = (weight == lastMaxWeight)
-            bool isHigh   = (weight >= lastMaxWeight * 0.75) and not isTop
-            bool isMedium = (weight >= lastMaxWeight * 0.50) and not (isTop or isHigh)
-
-            color baseColor = isTop    ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.new(color.blue, 80)
-            int lw = isTop  ? 3 : isHigh ? 2 : 1
-
-            styleLine = (isTop or lvlFrac == 0.0 or lvlFrac == 1.0) ? line.style_solid : line.style_dotted
-
-            updateFibLineAndLabel(i, true, priceF, weight, baseColor, lw, styleLine)
+            updateFibDrawing(i, priceF, weightVal, lvlFrac, pctWeight, threshold, topIndices)
 
     // ==================================================================
     // 12.D) REAPROVEITAMENTO DE PLACEHOLDERS PARA ZONAS DE CONFLUÊNCIA
     // ==================================================================
     if showZones
         for i = 0 to levelsCount - 1
-            float priceF   = array.get(fibPrices, i)
-            float weight   = array.get(fibWeights, i)
-            float distPct  = volPct * priceF * atrMultiplier
-            float lowZone  = priceF - distPct
-            float highZone = priceF + distPct
-            float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
+            float priceF      = array.get(fibPrices, i)
+            float weightVal   = array.get(fibWeights, i)
+            float distPct     = volPct * priceF * atrMultiplier
+            float lowZone     = priceF - distPct
+            float highZone    = priceF + distPct
+            float pctWeight   = (lastMaxWeight > 0) ? (weightVal / lastMaxWeight) : 0.0
 
-            // ==== FILTROS ====
-            bool validZone = true
-
-            if replayMode and array.size(swingBars) > 0
-                int swingBarIdx = array.get(swingBars, currentSwingIdx)
-                if bar_index < swingBarIdx
-                    validZone := false
-
-            if validZone and doAutoHide and pctW < weightMinPct
-                validZone := false
-
-            if validZone and topN > 0 and not array.includes(topIndices, i)
-                validZone := false
-
-            if validZone and topN == 0 and weight < threshold
-                validZone := false
-
-            if not validZone
-                updateFibZone(i, false, lowZone, highZone, color.blue, color.new(color.blue, 98))
-                continue
-
-            // ==== COR E ESTILO ====
-            bool isTop    = (weight == lastMaxWeight)
-            bool isHigh   = (weight >= lastMaxWeight * 0.75) and not isTop
-            bool isMedium = (weight >= lastMaxWeight * 0.50) and not (isTop or isHigh)
-
-            color borderColor = isTop ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.blue
-            color fillColor   = isTop ? color.new(color.red, 80) : isHigh   ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
-
-            updateFibZone(i, true, lowZone, highZone, borderColor, fillColor)
+            updateZoneDrawing(i, priceF, weightVal, lowZone, highZone, pctWeight, threshold, topIndices)
 
 // ==================================================================
 // 13. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
@@ -473,25 +468,7 @@ if barstate.islast
         float pctWeightTbl = lastMaxWeight > 0 ? (wt / lastMaxWeight) : 0.0
 
         // Verifica se está incluído (mesmos filtros de 12.C e 12.D)
-        bool isIncluded = true
-
-        // (A) ReplayMode
-        if replayMode and array.size(swingBars) > 0
-            int swingBarIdx = array.get(swingBars, currentSwingIdx)
-            if bar_index < swingBarIdx
-                isIncluded := false
-
-        // (B) Auto-Hide
-        if isIncluded and doAutoHide and pctWeightTbl < weightMinPct
-            isIncluded := false
-
-        // (C) TopN
-        if isIncluded and topN > 0 and not array.includes(topIndices, i)
-            isIncluded := false
-
-        // (D) Threshold (quando topN == 0)
-        if isIncluded and topN == 0 and wt < threshold
-            isIncluded := false
+        bool isIncluded = isLevelVisible(i, wt, pctWeightTbl, threshold, topIndices)
 
         string nivelTxt = str.tostring(lvlFrac * 100, "#.##") + "%"
         string inclTxt  = isIncluded ? "Sim" : "Não"
