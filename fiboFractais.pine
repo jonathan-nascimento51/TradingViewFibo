@@ -35,6 +35,10 @@ replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas úl
 // Quantos swings mostrar ao utilizar o modo de replay
 replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
 
+// Constants for weight classification
+HIGH_WEIGHT_FRAC   = 0.75
+MEDIUM_WEIGHT_FRAC = 0.50
+
 // ==================================================================
 // 2. DADOS H1 CONSOLIDADOS (CLOSE, VOLATILIDADE E PIVOTS)
 // ==================================================================
@@ -412,8 +416,9 @@ if not na(lastHigh) and not na(lastLow)
 
             // ==== COR E ESTILO ====
             bool isTop    = (weight == lastMaxWeight)
-            bool isHigh   = (weight >= lastMaxWeight * 0.75) and not isTop
-            bool isMedium = (weight >= lastMaxWeight * 0.50) and not (isTop or isHigh)
+            bool isHigh   = (weight >= lastMaxWeight * HIGH_WEIGHT_FRAC) and not isTop
+            bool isMedium = (weight >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) and not (isTop or isHigh)
+
 
             color baseColor = isTop    ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.new(color.blue, 80)
             int lw = isTop  ? 3 : isHigh ? 2 : 1
@@ -444,8 +449,8 @@ if not na(lastHigh) and not na(lastLow)
 
             // ==== COR E ESTILO ====
             bool isTop    = (weight == lastMaxWeight)
-            bool isHigh   = (weight >= lastMaxWeight * 0.75) and not isTop
-            bool isMedium = (weight >= lastMaxWeight * 0.50) and not (isTop or isHigh)
+            bool isHigh   = (weight >= lastMaxWeight * HIGH_WEIGHT_FRAC) and not isTop
+            bool isMedium = (weight >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) and not (isTop or isHigh)
 
             color borderColor = isTop ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.blue
             color fillColor   = isTop ? color.new(color.red, 80) : isHigh   ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
