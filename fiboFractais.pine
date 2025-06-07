@@ -45,6 +45,8 @@ volPct      = volPctRaw > 0 ? volPctRaw : 0.0
 var float[] fractalPrices   = array.new_float()   // preços únicos de fractais
 var int[]   fractalTouches  = array.new_int()     // contagem de toques em cada fractal
 var label[] fractalPointLabels = array.new_label()  // armazena labels de fractais
+// "fractalPrices" e "fractalTouches" são podados em "addFractal" para evitar
+// crescimento ilimitado das estruturas
 
 var float[] fibLevels       = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0)
 levelsCount                 = array.size(fibLevels)              // total de níveis Fibonacci
@@ -137,66 +139,68 @@ addFractal(_price) =>
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
 // ==================================================================
 updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWidth, _styleLine) =>
-    line  ln       = array.get(fibLines, _index)
-    label fpLabel  = array.get(fibLabels, _index)
-    label circLbl  = array.get(circleLabels, _index)
+    line  fibLine       = array.get(fibLines, _index)
+    label fibPriceLabel  = array.get(fibLabels, _index)
+    label fibCircleLabel  = array.get(circleLabels, _index)
 
-    line.set_xy1(ln, bar_index,     _priceF)
-    line.set_xy2(ln, bar_index + 1, _priceF)
-    label.set_xy(fpLabel, bar_index + 1, _priceF)
+    line.set_xy1(fibLine, bar_index,     _priceF)
+    line.set_xy2(fibLine, bar_index + 1, _priceF)
+    label.set_xy(fibPriceLabel, bar_index + 1, _priceF)
 
     if _isVisible
-        line.set_color(ln, _baseColor)
-        line.set_width(ln, _lineWidth)
-        line.set_style(ln, _styleLine)
-        line.set_extend(ln, extend.right)
+        line.set_color(fibLine, _baseColor)
+        line.set_width(fibLine, _lineWidth)
+        line.set_style(fibLine, _styleLine)
+        line.set_extend(fibLine, extend.right)
 
         float pct  = (rangeVal > 0) ? math.round(100 * (_priceF - bottomVal) / rangeVal, 2) : na
         string txtW = str.tostring(pct, "#.##") + "% | Peso: " + str.tostring(_weight, "#.##")
-        label.set_text(fpLabel, txtW)
-        label.set_color(fpLabel, color.new(_baseColor, 30))
+        label.set_text(fibPriceLabel, txtW)
+        label.set_color(fibPriceLabel, color.new(_baseColor, 30))
 
         if _weight > lastMaxWeight * 0.50
             int sizeC = math.round(5 * (_weight / lastMaxWeight)) + 1
-            label.set_xy(circLbl, bar_index - 1, _priceF)
-            label.set_style(circLbl, label.style_circle)
-            label.set_size(circLbl, sizeC)
-            label.set_color(circLbl, color.new(_baseColor, 70))
+            label.set_xy(fibCircleLabel, bar_index - 1, _priceF)
+            label.set_style(fibCircleLabel, label.style_circle)
+            label.set_size(fibCircleLabel, sizeC)
+            label.set_color(fibCircleLabel, color.new(_baseColor, 70))
         else
-            label.set_color(circLbl, color.new(color.gray, 100))
+            label.set_color(fibCircleLabel, color.new(color.gray, 100))
     else
-        line.set_extend(ln, extend.none)
-        label.set_text(fpLabel, "")
-        label.set_color(fpLabel, color.new(color.gray, 100))
-        label.set_color(circLbl, color.new(color.gray, 100))
+        line.set_extend(fibLine, extend.none)
+        label.set_text(fibPriceLabel, "")
+        label.set_color(fibPriceLabel, color.new(color.gray, 100))
+        label.set_color(fibCircleLabel, color.new(color.gray, 100))
 
 // ==================================================================
 // 6.C FUNÇÃO PARA ATUALIZAR ZONA DE CONFLUÊNCIA DE FIBONACCI
 // ==================================================================
 updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor) =>
-    linefill lf = array.get(zoneFills, _index)
-    line    l1p = array.get(zoneLinesLow, _index)
-    line    l2p = array.get(zoneLinesHigh, _index)
+    linefill zoneFill = array.get(zoneFills, _index)
+    line    zoneLowLine = array.get(zoneLinesLow, _index)
+    line    zoneHighLine = array.get(zoneLinesHigh, _index)
 
-    line.set_xy1(l1p, bar_index,     _lowZone)
-    line.set_xy2(l1p, bar_index + 1, _lowZone)
-    line.set_xy1(l2p, bar_index,     _highZone)
-    line.set_xy2(l2p, bar_index + 1, _highZone)
+    line.set_xy1(zoneLowLine, bar_index,     _lowZone)
+    line.set_xy2(zoneLowLine, bar_index + 1, _lowZone)
+    line.set_xy1(zoneHighLine, bar_index,     _highZone)
+    line.set_xy2(zoneHighLine, bar_index + 1, _highZone)
 
     if _isVisible
-        line.set_color(l1p, color.new(_borderColor, 60))
-        line.set_color(l2p, color.new(_borderColor, 60))
-        line.set_extend(l1p, extend.right)
-        line.set_extend(l2p, extend.right)
-        linefill.set_color(lf, _fillColor)
+        line.set_color(zoneLowLine, color.new(_borderColor, 60))
+        line.set_color(zoneHighLine, color.new(_borderColor, 60))
+        line.set_extend(zoneLowLine, extend.right)
+        line.set_extend(zoneHighLine, extend.right)
+        linefill.set_color(zoneFill, _fillColor)
     else
-        line.set_extend(l1p, extend.none)
-        line.set_extend(l2p, extend.none)
-        linefill.set_color(lf, color.new(color.blue, 98))
+        line.set_extend(zoneLowLine, extend.none)
+        line.set_extend(zoneHighLine, extend.none)
+        linefill.set_color(zoneFill, color.new(color.blue, 98))
 
 // ==================================================================
 // 7. COLETA DE FRACTAIS H1 (pivot high/low)
 // ==================================================================
+float prevHigh = lastHigh[1]
+float prevLow  = lastLow[1]
 pivotHighH1 = request.security(syminfo.tickerid, "60", ta.pivothigh(high, n, n))
 pivotLowH1 = request.security(syminfo.tickerid, "60", ta.pivotlow(low, n, n))
 
@@ -211,8 +215,8 @@ if not na(pivotLowH1)
 if timeframe.isminutes and timeframe.multiplier == 60 and barstate.isconfirmed and array.size(fractalPrices) > 0
     int startIdx2 = math.max(0, array.size(fractalPrices) - maxFractalsToCheck)
     for i = startIdx2 to array.size(fractalPrices) - 1
-        float fp = array.get(fractalPrices, i)
-        if high >= fp and low <= fp
+        float fractalPrice = array.get(fractalPrices, i)
+        if high >= fractalPrice and low <= fractalPrice
             array.set(fractalTouches, i, array.get(fractalTouches, i) + 1)
 
 // ==================================================================
@@ -220,26 +224,23 @@ if timeframe.isminutes and timeframe.multiplier == 60 and barstate.isconfirmed a
 // ==================================================================
 if showFractalPoints
     // apenas plota quando pivotHighH1/pivotLowH1 corresponde a um dos últimos N valores registrados
-    if not na(pivotHighH1)
+    if not na(pivotHighH1) and (na(prevHigh) or pivotHighH1 != prevHigh)
         float offsetTicksHigh = syminfo.mintick * 10
-        int tph = request.security(syminfo.tickerid, "60", time[n])
-        label lb = label.new( x = tph, y = pivotHighH1 + offsetTicksHigh, text = "▲", xloc = xloc.bar_time, yloc = yloc.price, color = color.new(color.green, 0), textcolor = color.white, size = size.tiny)
-        array.push(fractalPointLabels, lb)
+        int pivotHighTime = request.security(syminfo.tickerid, "60", time[n])
+        label fractalHighLabel = label.new( x = pivotHighTime, y = pivotHighH1 + offsetTicksHigh, text = "▲", xloc = xloc.bar_time, yloc = yloc.price, color = color.new(color.green, 0), textcolor = color.white, size = size.tiny)
+        array.push(fractalPointLabels, fractalHighLabel)
         if array.size(fractalPointLabels) > maxFractalsToCheck
             label.delete(array.shift(fractalPointLabels))
-    if not na(pivotLowH1)
+    if not na(pivotLowH1) and (na(prevLow) or pivotLowH1 != prevLow)
         float offsetTicksLow = syminfo.mintick * 10
-        int tpl = request.security(syminfo.tickerid, "60", time[n])
-        label lb2 = label.new( x = tpl, y = pivotLowH1 - offsetTicksLow, text = "▼", xloc = xloc.bar_time, yloc = yloc.price, color = color.new(color.red, 0), textcolor = color.white, size = size.tiny)
-        array.push(fractalPointLabels, lb2)
+        int pivotLowTime = request.security(syminfo.tickerid, "60", time[n])
+        label fractalLowLabel = label.new( x = pivotLowTime, y = pivotLowH1 - offsetTicksLow, text = "▼", xloc = xloc.bar_time, yloc = yloc.price, color = color.new(color.red, 0), textcolor = color.white, size = size.tiny)
+        array.push(fractalPointLabels, fractalLowLabel)
         if array.size(fractalPointLabels) > maxFractalsToCheck
             label.delete(array.shift(fractalPointLabels))
 // ==================================================================
 // 10. ATUALIZAÇÃO DE ÚLTIMOS SWINGS (HIGH / LOW) + “Replay”
 // ==================================================================
-float prevHigh = lastHigh[1]
-float prevLow  = lastLow[1]
-
 if not na(pivotHighH1)
     if pivotHighH1 != prevHigh
         swingsCount += 1
@@ -282,18 +283,33 @@ if barstate.isfirst
 
     // (B) Placeholders para zonas (linhas + linefill) – invisíveis em y = 0
     for i = 0 to levelsCount - 1
-        line l1p = line.new( x1     = bar_index, y1 = 0,x2     = bar_index + 1, y2 = 0, xloc   = xloc.bar_index, extend = extend.right,color  = color.new(color.blue, 98), width = 1)
-        line l2p = line.new(x1     = bar_index, y1 = 0,x2     = bar_index + 1, y2 = 0,xloc   = xloc.bar_index, extend = extend.right,color  = color.new(color.blue, 98), width = 1)
+        line zoneLowLine = line.new( x1     = bar_index, y1 = 0,x2     = bar_index + 1, y2 = 0, xloc   = xloc.bar_index, extend = extend.right,color  = color.new(color.blue, 98), width = 1)
+        line zoneHighLine = line.new(x1     = bar_index, y1 = 0,x2     = bar_index + 1, y2 = 0,xloc   = xloc.bar_index, extend = extend.right,color  = color.new(color.blue, 98), width = 1)
 
-        array.push(zoneLinesLow,  l1p)
-        array.push(zoneLinesHigh, l2p)
-        array.push(zoneFills, linefill.new(l1p, l2p, color.new(color.blue, 98)))
+        array.push(zoneLinesLow,  zoneLowLine)
+        array.push(zoneLinesHigh, zoneHighLine)
+        array.push(zoneFills, linefill.new(zoneLowLine, zoneHighLine, color.new(color.blue, 98)))
 
 // ==================================================================
 // 12. SE HOUVER SWING VÁLIDO, CALCULA NÍVEIS DE FIBO, PESOS E DESENHA
 // ==================================================================
 float threshold = minSignificance
 int[] topIndices = array.new_int()
+
+// Função auxiliar para verificar se um nível/zona deve ser exibido
+isDisplayAllowed(_w, _pctW, _idx) =>
+    bool ok = true
+    if replayMode and array.size(swingBars) > 0
+        int swingBarIdx = array.get(swingBars, replayStartIdx)
+        if bar_index < swingBarIdx
+            ok := false
+    if ok and doAutoHide and _pctW < weightMinPct
+        ok := false
+    if ok and topN > 0 and not array.includes(topIndices, _idx)
+        ok := false
+    if ok and topN == 0 and _w < threshold
+        ok := false
+    ok
 
 if not na(lastHigh) and not na(lastLow)
     for i = 0 to levelsCount - 1
@@ -314,8 +330,8 @@ if not na(lastHigh) and not na(lastLow)
 
         // Conta quantos fractais caem dentro da “zona” deste nível
         for j = startIdx3 to array.size(fractalPrices) - 1
-            float fp = array.get(fractalPrices, j)
-            if math.abs(fp - priceF) <= distPctCalc
+            float fractalPrice = array.get(fractalPrices, j)
+            if math.abs(fractalPrice - priceF) <= distPctCalc
                 contagem += 1
 
         float z      = calcZscore(priceF)
@@ -373,24 +389,7 @@ if not na(lastHigh) and not na(lastLow)
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
 
             // ==== FILTROS ====
-            bool validLevel = true
-
-            // (A) ReplayMode: só desenha após pivot confirm
-            if replayMode and array.size(swingBars) > 0
-                int swingBarIdx = array.get(swingBars, replayStartIdx)
-                if bar_index < swingBarIdx
-                    validLevel := false
-
-            // (B) Auto-Hide: TF baixo + peso muito baixo
-            if validLevel and doAutoHide and pctW < weightMinPct
-                validLevel := false
-
-            // (C) TopN ou threshold
-            if validLevel and topN > 0 and not array.includes(topIndices, i)
-                validLevel := false
-            
-            if validLevel and topN == 0 and weight < threshold
-                validLevel := false
+            bool validLevel = isDisplayAllowed(weight, pctW, i)
 
             if not validLevel
                 // Esconde linha, label e círculo
@@ -422,21 +421,7 @@ if not na(lastHigh) and not na(lastLow)
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
 
             // ==== FILTROS ====
-            bool validZone = true
-
-            if replayMode and array.size(swingBars) > 0
-                int swingBarIdx = array.get(swingBars, replayStartIdx)
-                if bar_index < swingBarIdx
-                    validZone := false
-
-            if validZone and doAutoHide and pctW < weightMinPct
-                validZone := false
-
-            if validZone and topN > 0 and not array.includes(topIndices, i)
-                validZone := false
-
-            if validZone and topN == 0 and weight < threshold
-                validZone := false
+            bool validZone = isDisplayAllowed(weight, pctW, i)
 
             if not validZone
                 updateFibZone(i, false, lowZone, highZone, color.blue, color.new(color.blue, 98))
@@ -480,25 +465,7 @@ if barstate.islast
         float pctWeightTbl = lastMaxWeight > 0 ? (wt / lastMaxWeight) : 0.0
 
         // Verifica se está incluído (mesmos filtros de 12.C e 12.D)
-        bool isIncluded = true
-
-        // (A) ReplayMode
-        if replayMode and array.size(swingBars) > 0
-            int swingBarIdx = array.get(swingBars, replayStartIdx)
-            if bar_index < swingBarIdx
-                isIncluded := false
-
-        // (B) Auto-Hide
-        if isIncluded and doAutoHide and pctWeightTbl < weightMinPct
-            isIncluded := false
-
-        // (C) TopN
-        if isIncluded and topN > 0 and not array.includes(topIndices, i)
-            isIncluded := false
-
-        // (D) Threshold (quando topN == 0)
-        if isIncluded and topN == 0 and wt < threshold
-            isIncluded := false
+        bool isIncluded = isDisplayAllowed(wt, pctWeightTbl, i)
 
         string nivelTxt = str.tostring(lvlFrac * 100, "#.##") + "%"
         string inclTxt  = isIncluded ? "Sim" : "Não"
@@ -513,6 +480,8 @@ if barstate.islast
         table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"),text_color = color.white, bgcolor = cellBg)
         table.cell(tableWeights, 4, i + 1, inclTxt, text_color = color.white)
 
+// ==================================================================
+// FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
 // ==================================================================
 // FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
 // ==================================================================
