@@ -78,42 +78,25 @@ var float bottomVal = na
 var float rangeVal  = na
 
 // ==================================================================
-// 4. TABELA DE STATUS (PARÂMETROS)
-// ==================================================================
-var table tableStatus = table.new(position.top_right, 2, 7, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
-if barstate.isfirst
-    // Cabeçalhos
-    table.cell(tableStatus, 0, 0, "Parâmetro",            bgcolor=color.new(color.blue, 30), text_color=color.white)
-    table.cell(tableStatus, 1, 0, "Valor Atual",          bgcolor=color.new(color.blue, 30), text_color=color.white)
-    table.cell(tableStatus, 0, 2, "Multiplicador ATR",    text_color=color.white)
-    table.cell(tableStatus, 0, 3, "Volatilidade H1 (%)",  text_color=color.white)
-    table.cell(tableStatus, 0, 4, "Signif. Mín (peso)",   text_color=color.white)
-    table.cell(tableStatus, 0, 5, "Período Fractal (n)",  text_color=color.white)
-    table.cell(tableStatus, 0, 6, "Top N Níveis",         text_color=color.white)
-
-string atrTxt   = "ATR(" + str.tostring(atrLength) + ")"
-string atrVal   = str.tostring(atrValue, "#.##")
-string multTxt  = str.tostring(atrMultiplier, "#.##")
-string volTxt   = str.tostring(volPct * 100, "#.##") + "%"
-string zTxt     = str.tostring(minSignificance, "#.##")
-string nTxt     = str.tostring(n)
-string topNTxt  = str.tostring(topN)
-
-// Cor para TopN na tabela (cinza se 0, azul se >0)
-color topNColor = (topN == 0) ? color.new(color.white, 50) : color.new(color.blue, 0)
-
-table.cell(tableStatus, 0, 1, atrTxt,   text_color=color.white)
-table.cell(tableStatus, 1, 1, atrVal,   text_color=color.white)
-table.cell(tableStatus, 1, 2, multTxt,  text_color=color.white)
-table.cell(tableStatus, 1, 3, volTxt,   text_color=color.white)
-table.cell(tableStatus, 1, 4, zTxt,     text_color=color.yellow)
-table.cell(tableStatus, 1, 5, nTxt,     text_color=color.white)
-table.cell(tableStatus, 1, 6, topNTxt,  text_color=topNColor)
-
-// ==================================================================
 // 5. FUNÇÃO PARA CALCULAR Z-SCORE (DISTÂNCIA AO PREÇO MÉDIO H1)
 // ==================================================================
 calcZscore(_price) => h1Stdev > 0 ? math.abs(_price - h1Mean) / h1Stdev : 1.0
+
+// ==================================================================
+// 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MA10/MA50
+// ==================================================================
+biasFilter() =>
+    float dClose = request.security(syminfo.tickerid, "D", close)
+    float ma10   = ta.sma(dClose, 10)
+    float ma50   = ta.sma(dClose, 50)
+    if na(ma10) or na(ma50)
+        0
+    else
+        float diffPct = math.abs(ma10 - ma50) / dClose
+        diffPct < 0.005 ? 0 : ma10 > ma50 ? 1 : ma10 < ma50 ? -1 : 0
+
+float biasVal   = biasFilter()
+string biasTxt  = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
 
 // ==================================================================
 // 6. FUNÇÃO PARA ADICIONAR UM FRACTAL (EVITA DUPLICATAS PRÓXIMAS)
@@ -438,6 +421,42 @@ if not na(lastHigh) and not na(lastLow)
             updateFibZone(i, true, lowZone, highZone, borderColor, fillColor)
 
 // ==================================================================
+// 4. TABELA DE STATUS (PARÂMETROS)
+// ==================================================================
+var table tableStatus = table.new(position.top_right, 2, 8, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
+if barstate.isfirst
+    // Cabeçalhos
+    table.cell(tableStatus, 0, 0, "Parâmetro",            bgcolor=color.new(color.blue, 30), text_color=color.white)
+    table.cell(tableStatus, 1, 0, "Valor Atual",          bgcolor=color.new(color.blue, 30), text_color=color.white)
+    table.cell(tableStatus, 0, 2, "Multiplicador ATR",    text_color=color.white)
+    table.cell(tableStatus, 0, 3, "Volatilidade H1 (%)",  text_color=color.white)
+    table.cell(tableStatus, 0, 4, "Signif. Mín (peso)",   text_color=color.white)
+    table.cell(tableStatus, 0, 5, "Período Fractal (n)",  text_color=color.white)
+    table.cell(tableStatus, 0, 6, "Top N Níveis",         text_color=color.white)
+    table.cell(tableStatus, 0, 7, "Bias MA10/50",         text_color=color.white)
+
+string atrTxt   = "ATR(" + str.tostring(atrLength) + ")"
+string atrVal   = str.tostring(atrValue, "#.##")
+string multTxt  = str.tostring(atrMultiplier, "#.##")
+string volTxt   = str.tostring(volPct * 100, "#.##") + "%"
+string zTxt     = str.tostring(minSignificance, "#.##")
+string nTxt     = str.tostring(n)
+string topNTxt  = str.tostring(topN)
+
+// Cor para TopN na tabela (cinza se 0, azul se >0)
+color topNColor = (topN == 0) ? color.new(color.white, 50) : color.new(color.blue, 0)
+
+table.cell(tableStatus, 0, 1, atrTxt,   text_color=color.white)
+table.cell(tableStatus, 1, 1, atrVal,   text_color=color.white)
+table.cell(tableStatus, 1, 2, multTxt,  text_color=color.white)
+table.cell(tableStatus, 1, 3, volTxt,   text_color=color.white)
+table.cell(tableStatus, 1, 4, zTxt,     text_color=color.yellow)
+table.cell(tableStatus, 1, 5, nTxt,     text_color=color.white)
+table.cell(tableStatus, 1, 6, topNTxt,  text_color=topNColor)
+table.cell(tableStatus, 1, 7, biasTxt,  text_color=color.white)
+
+
+// ==================================================================
 // 13. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
 // ==================================================================
 // tableWeights é declarado no bloco de variáveis persistentes
@@ -480,8 +499,6 @@ if barstate.islast
         table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"),text_color = color.white, bgcolor = cellBg)
         table.cell(tableWeights, 4, i + 1, inclTxt, text_color = color.white)
 
-// ==================================================================
-// FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
 // ==================================================================
 // FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
 // ==================================================================
