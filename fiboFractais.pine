@@ -26,7 +26,7 @@ weightMinPct       = input.float(0.50,  "Peso Mínimo (%) para mostrar nível", 
 
 replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas último swing)")
 
-// Para futura expansão (replayCount), mas atualmente não usado:
+// Quantos swings mostrar ao utilizar o modo de replay
 replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
 
 // ==================================================================
@@ -71,9 +71,9 @@ var int[]   swingBars   = array.new_int()  // armazena bar_index de cada swing d
 var int     swingsCount = 0                // contador de swings detectados
 var table tableWeights = table.new(position.top_left, 5, levelsCount + 1, bgcolor=color.new(color.black, 65), frame_color=color.rgb(78, 82, 94))  // tabela auxiliar de "weight"
 
-float topVal    = math.max(lastHigh, lastLow)
-float bottomVal = math.min(lastHigh, lastLow)
-float rangeVal  = topVal - bottomVal
+var float topVal    = na
+var float bottomVal = na
+var float rangeVal  = na
 
 // ==================================================================
 // 4. TABELA DE STATUS (PARÂMETROS)
@@ -244,15 +244,21 @@ if not na(pivotHighH1)
         swingsCount += 1
         array.push(swingBars, bar_index)
     lastHigh := pivotHighH1
+    topVal    := math.max(lastHigh, lastLow)
+    bottomVal := math.min(lastHigh, lastLow)
+    rangeVal  := topVal - bottomVal
 
 if not na(pivotLowH1)
     if pivotLowH1 != prevLow
         swingsCount += 1
         array.push(swingBars, bar_index)
     lastLow := pivotLowH1
+    topVal    := math.max(lastHigh, lastLow)
+    bottomVal := math.min(lastHigh, lastLow)
+    rangeVal  := topVal - bottomVal
 
 bool doAutoHide = autoHideLow and timeframe.isminutes and timeframe.multiplier <= tfHideThresh
-int  currentSwingIdx = swingsCount > 0 ? swingsCount - 1 : 0
+int replayStartIdx = math.max(0, swingsCount - replayCount)
 
 // ==================================================================
 // 11. CRIAÇÃO ÚNICA DE PLACEHOLDERS (apenas na primeira barra)
@@ -370,7 +376,7 @@ if not na(lastHigh) and not na(lastLow)
 
             // (A) ReplayMode: só desenha após pivot confirm
             if replayMode and array.size(swingBars) > 0
-                int swingBarIdx = array.get(swingBars, currentSwingIdx)
+                int swingBarIdx = array.get(swingBars, replayStartIdx)
                 if bar_index < swingBarIdx
                     validLevel := false
 
@@ -418,7 +424,7 @@ if not na(lastHigh) and not na(lastLow)
             bool validZone = true
 
             if replayMode and array.size(swingBars) > 0
-                int swingBarIdx = array.get(swingBars, currentSwingIdx)
+                int swingBarIdx = array.get(swingBars, replayStartIdx)
                 if bar_index < swingBarIdx
                     validZone := false
 
@@ -477,7 +483,7 @@ if barstate.islast
 
         // (A) ReplayMode
         if replayMode and array.size(swingBars) > 0
-            int swingBarIdx = array.get(swingBars, currentSwingIdx)
+            int swingBarIdx = array.get(swingBars, replayStartIdx)
             if bar_index < swingBarIdx
                 isIncluded := false
 
