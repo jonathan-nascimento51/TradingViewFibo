@@ -30,14 +30,14 @@ replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas úl
 replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
 
 // ==================================================================
-// 2. CÁLCULO DE ATR, MÉDIA E VOLATILIDADE (H1)
+// 2. DADOS H1 CONSOLIDADOS (CLOSE, VOLATILIDADE E PIVOTS)
 // ==================================================================
-atrValue    = ta.ema(ta.atr(atrLength), 10)
-h1CloseArr  = request.security(syminfo.tickerid, "60", close)
-h1Mean      = ta.sma(h1CloseArr, 50)
-h1Stdev     = ta.stdev(h1CloseArr, 50)
-volPctRaw   = request.security(syminfo.tickerid, "60", ta.stdev(close, 50) / ta.sma(close, 50))
-volPct      = volPctRaw > 0 ? volPctRaw : 0.0
+[h1CloseArr, h1VolPctRaw, pivotHighH1, pivotLowH1] = request.security(syminfo.tickerid, "60",[ close, ta.stdev(close, 50) / ta.sma(close, 50), ta.pivothigh(high, n, n), ta.pivotlow(low, n, n) ] )
+
+atrValue = ta.ema(ta.atr(atrLength), 10)
+h1Mean   = ta.sma(h1CloseArr, 50)
+h1Stdev  = ta.stdev(h1CloseArr, 50)
+volPct   = math.max(h1VolPctRaw, 0)
 
 // ==================================================================
 // 3. ARRAYS E VARIÁVEIS PARA FRACTAIS E FIBONACCI
@@ -80,7 +80,22 @@ var float rangeVal  = na
 // ==================================================================
 // 5. FUNÇÃO PARA CALCULAR Z-SCORE (DISTÂNCIA AO PREÇO MÉDIO H1)
 // ==================================================================
-calcZscore(_price) => h1Stdev > 0 ? math.abs(_price - h1Mean) / h1Stdev : 1.0
+//     Agora retorna o valor com sinal para uso em cálculos de peso
+// ==================================================================
+calcZscore(_price) => h1Stdev > 0 ? (_price - h1Mean) / h1Stdev : 0.0
+
+// ==================================================================
+// 5.A FUNÇÃO PARA CALCULAR DISTÂNCIA MÍNIMA ENTRE FRACTAIS
+//     (0.5 ATR vs volatilidade%)
+// ==================================================================
+calcDist(_price) => math.max(atrValue * 0.5, volPct * _price * atrMultiplier)
+
+// ==================================================================
+// 5.B FUNÇÃO PARA CALCULAR PESO COM BASE NA CONTAGEM E Z-SCORE
+// ==================================================================
+calcWeight(_price, _count) =>
+    float z = calcZscore(_price)
+    (_count + 1) * math.log(math.abs(z) + 1)
 
 // ==================================================================
 // 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MA10/MA50
@@ -103,9 +118,7 @@ string biasTxt  = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
 // ==================================================================
 addFractal(_price) =>
     bool isDup    = false
-    float gapATR  = atrValue * 0.5                  // distância mínima = 0.5 ATR
-    float gapVol  = volPct * _price * atrMultiplier // distância mínima = volatilidade%
-    float gapMin  = math.max(gapATR, gapVol)
+    float gapMin  = calcDist(_price)
 
     int startIdx = math.max(0, array.size(fractalPrices) - maxFractalsToCheck)
     if array.size(fractalPrices) > 0
@@ -117,6 +130,9 @@ addFractal(_price) =>
     if not isDup
         array.push(fractalPrices, _price)
         array.push(fractalTouches, 0)
+        if array.size(fractalPrices) > maxFractalsToCheck
+            array.shift(fractalPrices) 
+            array.shift(fractalTouches)
 
 // ==================================================================
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
@@ -184,8 +200,6 @@ updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor)
 // ==================================================================
 float prevHigh = lastHigh[1]
 float prevLow  = lastLow[1]
-pivotHighH1 = request.security(syminfo.tickerid, "60", ta.pivothigh(high, n, n))
-pivotLowH1 = request.security(syminfo.tickerid, "60", ta.pivotlow(low, n, n))
 
 if not na(pivotHighH1)
     addFractal(pivotHighH1)
@@ -308,7 +322,7 @@ if not na(lastHigh) and not na(lastLow)
 
     for i = 0 to levelsCount - 1
         float priceF      = array.get(fibPrices, i)
-        float distPctCalc = volPct * priceF * atrMultiplier
+        float distPctCalc = calcDist(priceF)
         int   contagem    = 0
 
         // Conta quantos fractais caem dentro da “zona” deste nível
@@ -317,8 +331,7 @@ if not na(lastHigh) and not na(lastLow)
             if math.abs(fractalPrice - priceF) <= distPctCalc
                 contagem += 1
 
-        float z      = calcZscore(priceF)
-        float weight = contagem > 0 ? (contagem + 1) * math.log(z + 1) : 0.0
+        float weight = calcWeight(priceF, contagem)
         array.set(fibWeights, i, weight)
 
         if weight > maxWeight
@@ -398,7 +411,7 @@ if not na(lastHigh) and not na(lastLow)
         for i = 0 to levelsCount - 1
             float priceF   = array.get(fibPrices, i)
             float weight   = array.get(fibWeights, i)
-            float distPct  = volPct * priceF * atrMultiplier
+            float distPct  = calcDist(priceF)
             float lowZone  = priceF - distPct
             float highZone = priceF + distPct
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
@@ -471,7 +484,7 @@ if barstate.islast
     for i = 0 to levelsCount - 1
         float lvlFrac  = array.get(fibLevels, i)
         float priceF   = array.get(fibPrices, i)
-        float distPct  = volPct * priceF * atrMultiplier
+        float distPct  = calcDist(priceF)
         int cont       = 0
 
         // Recalcula contagem para tabela
