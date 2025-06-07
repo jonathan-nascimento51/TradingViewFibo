@@ -84,12 +84,6 @@ var float[] pivotPrices = array.new_float()
 var string[] pivotTypes = array.new_string()
 var int[]    pivotBars  = array.new_int()
 
-var float fibP1 = na
-var float fibP2 = na
-var float fibP3 = na
-var int   fibDir = 0
-var string fibModeActive = "Retracement"
-
 // Variável global para armazenar, a cada swing, o maxWeight calculado
 var float lastMaxWeight = 0.0
 
@@ -345,6 +339,7 @@ if showFractalPoints
         array.push(fractalPointLabels, fractalLowLabel)
         if array.size(fractalPointLabels) > maxFractalsToCheck
             label.delete(array.shift(fractalPointLabels))
+
 // ==================================================================
 // 10. ATUALIZAÇÃO DE ÚLTIMOS SWINGS (HIGH / LOW) + “Replay”
 // ==================================================================
@@ -439,7 +434,7 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
             ok := false
     ok
 
-[_p1, _p2, _p3, _dir, _mode] = determineFib()
+[fibP1, fibP2, fibP3, fibDir, fibModeActive] = determineFib()
 
 if not na(fibP1) and not na(fibP2)
     float baseRange = math.abs(fibP2 - fibP1)
@@ -475,6 +470,7 @@ if not na(fibP1) and not na(fibP2)
             lvlPrice := fibDir == 1 ? fibP3 + baseRange * lvlFrac : fibP3 - baseRange * lvlFrac
         array.set(fibPrices, i, lvlPrice)
     int trendDir = fibDir
+
     // ==================================================================
     // 12.A) CÁLCULO DE “weight” E maxWeight
     // ==================================================================
@@ -643,14 +639,16 @@ table.cell(tableStatus, 1, 9, biasTxt,  text_color=color.white)
 // 14. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
 // ==================================================================
 // tableWeights é declarado no bloco de variáveis persistentes
-if barstate.islast
+if barstate.isfirst
     // Cabeçalhos
     table.cell(tableWeights, 0, 0, "Nível (%)",  text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 1, 0, "# Fractais", text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 2, 0, "Z-score",    text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 3, 0, "Peso",       text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 4, 0, "Incluído?",  text_color=color.white, bgcolor=color.new(color.blue, 30))
-
+    // Atualiza valores a cada barra para evitar exibir apenas configurações vazias
+if lastMaxWeight > 0
+    table.clear(tableWeights, 1, 1, 4, levelsCount)  // limpa células de dados
     for i = 0 to levelsCount - 1
         float lvlFrac  = array.get(fibLevels, i)
         float priceF   = array.get(fibPrices, i)
@@ -679,8 +677,8 @@ if barstate.islast
 
         color cellBg = (wt == lastMaxWeight) ? color.new(color.red, 50) : (wt >= lastMaxWeight * 0.75) ? color.new(color.yellow, 50) : (wt >= lastMaxWeight * 0.50) ? color.new(color.green, 50) : color.new(color.blue, 80)
 
-        table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"),text_color = color.white, bgcolor = cellBg)
-        table.cell(tableWeights, 4, i + 1, inclTxt, text_color = color.white)
+        table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"), text_color=color.white, bgcolor=cellBg)
+        table.cell(tableWeights, 4, i + 1, inclTxt, text_color=color.white)
 
 // ==================================================================
 // FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
