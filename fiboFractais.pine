@@ -9,6 +9,7 @@ indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL", overlay=true, max_l
 showFractalPoints  = input.bool(true,   "Mostrar Fractais H1")
 showFibLines       = input.bool(true,   "Mostrar Linhas Fibonacci")
 showZones          = input.bool(true,   "Mostrar Zonas de Confluência")
+fibModeInput       = input.string("Auto", "Modo Fibonacci", options=["Auto", "Retracement", "Extension", "Projection"])
 
 atrLength          = input.int(14,      "Comprimento do ATR",                  minval=5)
 atrEmaPeriod       = input.int(10,      "Período EMA do ATR",                  minval=1)
@@ -77,6 +78,17 @@ var float lastHigh = na   // último pivot high (H1)
 var float lastLow  = na   // último pivot low (H1)
 var int   lastHighBar = na  // bar_index do último pivot high
 var int   lastLowBar  = na  // bar_index do último pivot low
+
+// Arrays para sequenciar pivôs e detectar P1→P2→P3
+var float[] pivotPrices = array.new_float()
+var string[] pivotTypes = array.new_string()
+var int[]    pivotBars  = array.new_int()
+
+var float fibP1 = na
+var float fibP2 = na
+var float fibP3 = na
+var int   fibDir = 0
+var string fibModeActive = "Retracement"
 
 // Variável global para armazenar, a cada swing, o maxWeight calculado
 var float lastMaxWeight = 0.0
@@ -172,6 +184,65 @@ addFractal(_price) =>
             if rmIdx != -1
                 array.remove(fractalSorted, rmIdx)
 
+// ==================================================================
+// 6.A FUNÇÃO PARA DEFINIR P1, P2, P3 E O MODO DE FIBONACCI
+// ==================================================================
+determineFib() =>
+    float _p1 = na
+    float _p2 = na
+    float _p3 = na
+    int   _dir = 0
+    string _mode = "Retracement"
+
+    int cnt = array.size(pivotPrices)
+    if cnt >= 2
+        string tLast = array.get(pivotTypes, cnt - 1)
+        string tPrev = array.get(pivotTypes, cnt - 2)
+        float pLast = array.get(pivotPrices, cnt - 1)
+        float pPrev = array.get(pivotPrices, cnt - 2)
+
+        if cnt >= 3
+            string tThird = array.get(pivotTypes, cnt - 3)
+            float pThird = array.get(pivotPrices, cnt - 3)
+            if tThird == "L" and tPrev == "H" and tLast == "L"
+                _p1 := pThird
+                _p2 := pPrev
+                _p3 := pLast
+                _dir := 1
+            else if tThird == "H" and tPrev == "L" and tLast == "H"
+                _p1 := pThird
+                _p2 := pPrev
+                _p3 := pLast
+                _dir := -1
+        if _dir == 0
+            if tPrev == "L" and tLast == "H"
+                _p1 := pPrev
+                _p2 := pLast
+                _dir := 1
+            else if tPrev == "H" and tLast == "L"
+                _p1 := pPrev
+                _p2 := pLast
+                _dir := -1
+
+    if not na(_p1) and not na(_p2)
+        float pbPct = na
+        bool breakout = false
+        if not na(_p3)
+            pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
+            breakout := _dir == 1 ? close > _p2 : close < _p2
+
+        string m = fibModeInput
+        if fibModeInput == "Auto"
+            if breakout
+                if not na(pbPct) and pbPct > 0.5
+                    m := "Projection"
+                else
+                    m := "Extension"
+            else
+                m := "Retracement"
+        _mode := m
+
+    [_p1, _p2, _p3, _dir, _mode]
 
 // ==================================================================
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
@@ -281,6 +352,13 @@ if not na(pivotHighH1)
     if pivotHighH1 != prevHigh
         swingsCount += 1
         array.push(swingBars, bar_index)
+        array.push(pivotPrices, pivotHighH1)
+        array.push(pivotTypes, "H")
+        array.push(pivotBars, bar_index)
+        if array.size(pivotPrices) > 10
+            array.shift(pivotPrices)
+            array.shift(pivotTypes)
+            array.shift(pivotBars)
     lastHigh := pivotHighH1
     lastHighBar := bar_index
     topVal    := math.max(lastHigh, lastLow)
@@ -291,6 +369,13 @@ if not na(pivotLowH1)
     if pivotLowH1 != prevLow
         swingsCount += 1
         array.push(swingBars, bar_index)
+        array.push(pivotPrices, pivotLowH1)
+        array.push(pivotTypes, "L")
+        array.push(pivotBars, bar_index)
+        if array.size(pivotPrices) > 10
+            array.shift(pivotPrices)
+            array.shift(pivotTypes)
+            array.shift(pivotBars)
     lastLow := pivotLowH1
     lastLowBar := bar_index
     topVal    := math.max(lastHigh, lastLow)
@@ -354,13 +439,42 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
             ok := false
     ok
 
-if not na(lastHigh) and not na(lastLow)
-    int trendDir = biasVal != 0 ? int(biasVal) : (not na(lastLowBar) and not na(lastHighBar) ? (lastLowBar > lastHighBar ? 1 : -1) : 0)
+[_p1, _p2, _p3, _dir, _mode] = determineFib()
+
+if not na(fibP1) and not na(fibP2)
+    float baseRange = math.abs(fibP2 - fibP1)
+    if fibDir == 1
+        if fibModeActive == "Retracement"
+            bottomVal := fibP1
+            topVal    := fibP2
+        else if fibModeActive == "Extension"
+            bottomVal := fibP2
+            topVal    := fibP2 + baseRange
+        else
+            bottomVal := fibP3
+            topVal    := fibP3 + baseRange
+    else
+        if fibModeActive == "Retracement"
+            topVal    := fibP1
+            bottomVal := fibP2
+        else if fibModeActive == "Extension"
+            topVal    := fibP2
+            bottomVal := fibP2 - baseRange
+        else
+            topVal    := fibP3
+            bottomVal := fibP3 - baseRange
+    rangeVal := math.abs(topVal - bottomVal)
     for i = 0 to levelsCount - 1
         float lvlFrac  = array.get(fibLevels, i)
-        float lvlPrice = trendDir == -1 ? topVal - rangeVal * lvlFrac : bottomVal + rangeVal * lvlFrac
+        float lvlPrice = na
+        if fibModeActive == "Retracement"
+            lvlPrice := fibDir == 1 ? fibP2 - baseRange * lvlFrac : fibP2 + baseRange * lvlFrac
+        else if fibModeActive == "Extension"
+            lvlPrice := fibDir == 1 ? fibP2 + baseRange * lvlFrac : fibP2 - baseRange * lvlFrac
+        else
+            lvlPrice := fibDir == 1 ? fibP3 + baseRange * lvlFrac : fibP3 - baseRange * lvlFrac
         array.set(fibPrices, i, lvlPrice)
-
+    int trendDir = fibDir
     // ==================================================================
     // 12.A) CÁLCULO DE “weight” E maxWeight
     // ==================================================================
