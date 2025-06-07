@@ -1,7 +1,7 @@
 //@version=6
 // build 2025-06-10_2.4.4 (corrigido: variáveis, scope, tipos e placeholders)
 // SciFib_H1 Stepwise: placeholders fixos, filtros unificados, sem vazamento de objetos.
-indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL-facfib", overlay=true, max_lines_count=200, max_labels_count=200)
+indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL", overlay=true, max_lines_count=200, max_labels_count=200)
 
 // ==================================================================
 // 1. INPUTS (Top N pesos, parâmetros básicos e novos toggles)
@@ -54,6 +54,7 @@ volPct   = math.max(h1VolPctRaw, 0)
 // ==================================================================
 var float[] fractalPrices   = array.new_float()   // preços únicos de fractais
 var int[]   fractalTouches  = array.new_int()     // contagem de toques em cada fractal
+var float[] fractalSorted   = array.new_float()   // preços de fractais ordenados
 var label[] fractalPointLabels = array.new_label()  // armazena labels de fractais
 // "fractalPrices" e "fractalTouches" são podados em "addFractal" para evitar
 // crescimento ilimitado das estruturas
@@ -111,8 +112,31 @@ calcWeight(_price, _count) =>
     float z = calcZscore(_price)
     (_count + 1) * math.log(math.abs(z) + 1)
 
+// ==================================================================
+// 5.C FUNÇÕES DE BUSCA BINÁRIA PARA LISTA ORDENADA DE FRACTAIS
+// ==================================================================
+binarySearchNear(_arr, _val) =>
+    int lo = 0
+    int hi = array.size(_arr) - 1
+    while lo <= hi
+        int mid = math.floor((lo + hi) / 2)
+        if array.get(_arr, mid) < _val
+            lo := mid + 1
+        else
+            hi := mid - 1
+    lo
+
+binarySearchExact(_arr, _val, _gap) =>
+    int idx = binarySearchNear(_arr, _val)
+    if idx < array.size(_arr) and math.abs(array.get(_arr, idx) - _val) < _gap
+        idx
+    else if idx > 0 and math.abs(array.get(_arr, idx - 1) - _val) < _gap
+        idx - 1
+    else
+        -1
+
 //===================================================================
-// 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MAs CURTA E LONGA
+// 5.D FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MAs CURTA E LONGA
 // ==================================================================
 biasFilter() =>
     float dClose = request.security(syminfo.tickerid, "D", close)
@@ -131,22 +155,23 @@ string biasTxt  = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
 // 6. FUNÇÃO PARA ADICIONAR UM FRACTAL (EVITA DUPLICATAS PRÓXIMAS)
 // ==================================================================
 addFractal(_price) =>
-    bool isDup    = false
     float gapMin  = calcDist(_price)
+    int dupIdx    = binarySearchExact(fractalSorted, _price, gapMin)
 
-    int startIdx = math.max(0, array.size(fractalPrices) - maxFractalsToCheck)
-    if array.size(fractalPrices) > 0
-        for i = startIdx to array.size(fractalPrices) - 1
-            if math.abs(_price - array.get(fractalPrices, i)) < gapMin
-                isDup := true
-                break
-
-    if not isDup
+    if dupIdx == -1
+        int insIdx = binarySearchNear(fractalSorted, _price)
+        array.insert(fractalSorted, insIdx, _price)
+    
         array.push(fractalPrices, _price)
         array.push(fractalTouches, 0)
+
         if array.size(fractalPrices) > maxFractalsToCheck
-            array.shift(fractalPrices) 
+            float rm = array.shift(fractalPrices)
             array.shift(fractalTouches)
+            int rmIdx = binarySearchExact(fractalSorted, rm, syminfo.mintick)
+            if rmIdx != -1
+                array.remove(fractalSorted, rmIdx)
+
 
 // ==================================================================
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
