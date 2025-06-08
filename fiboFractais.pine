@@ -1,7 +1,7 @@
 //@version=6
 // build 2025-06-10_2.4.4 (corrigido: variáveis, scope, tipos e placeholders)
 // SciFib_H1 Stepwise: placeholders fixos, filtros unificados, sem vazamento de objetos.
-indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL-facfib", overlay=true, max_lines_count=200, max_labels_count=200)
+indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL", overlay=true, max_lines_count=200, max_labels_count=200)
 
 // ==================================================================
 // 1. INPUTS (Top N pesos, parâmetros básicos e novos toggles)
@@ -9,6 +9,9 @@ indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL-facfib", overlay=true
 showFractalPoints  = input.bool(true,   "Mostrar Fractais H1")
 showFibLines       = input.bool(true,   "Mostrar Linhas Fibonacci")
 showZones          = input.bool(true,   "Mostrar Zonas de Confluência")
+showFibPivots      = input.bool(false,  "Mostrar Pivôs do Fibonacci")
+showDiagnostics    = input.bool(false,  "Training Mode")
+fibModeInput       = input.string("Auto", "Modo Fibonacci", options=["Auto", "Retracement", "Extension", "Projection"])
 
 atrLength          = input.int(14,      "Comprimento do ATR",                  minval=5)
 atrEmaPeriod       = input.int(10,      "Período EMA do ATR",                  minval=1)
@@ -20,6 +23,7 @@ n                  = input.int(5,       "Período do Fractal (n)",              
 maxFractalsToCheck = input.int(50,      "Máx. Fractais a Checar",              minval=1)
 
 topN               = input.int(0,       "Mostrar Top N Níveis (0=OFF)",        minval=0, maxval=10)
+topNMode           = input.string("OFF", "Modo TopN", options=["OFF", "Soft", "Strict"])
 
 // Comprimentos das MAs para cálculo de viés
 biasShortLen       = input.int(10,      "Período MA Curta (Bias)",             minval=1)
@@ -34,6 +38,9 @@ replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas úl
 
 // Quantos swings mostrar ao utilizar o modo de replay
 replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
+minZScoreAdj     = input.float(0.05,  "Z-score mínimo p/ peso",       step=0.01, minval=0.0)
+minSwingPct        = input.float(1.0,   "Range mínimo P1-P2 (%)",      step=0.1, minval=0.0)
+minSwingBars       = input.int(3,       "Barras mínimas entre P1-P3",  minval=1)
 
 // Constants for weight classification
 HIGH_WEIGHT_FRAC   = 0.75
@@ -42,11 +49,13 @@ MEDIUM_WEIGHT_FRAC = 0.50
 // ==================================================================
 // 2. DADOS H1 CONSOLIDADOS (CLOSE, VOLATILIDADE E PIVOTS)
 // ==================================================================
-[h1CloseArr, h1VolPctRaw, pivotHighH1, pivotLowH1] = request.security(syminfo.tickerid, "60",[ close, ta.stdev(close, meanStdLength) / ta.sma(close, meanStdLength), ta.pivothigh(high, n, n), ta.pivotlow(low, n, n) ] )
-
+[h1Close, h1VolPctRaw, pivotHighH1, pivotLowH1] = request.security(syminfo.tickerid, "60", [close,
+     ta.stdev(close, meanStdLength) / ta.sma(close, meanStdLength),
+     ta.pivothigh(high, n, n),
+     ta.pivotlow(low, n, n)])
 atrValue = ta.ema(ta.atr(atrLength), atrEmaPeriod)
-h1Mean   = ta.sma(h1CloseArr, meanStdLength)
-h1Stdev  = ta.stdev(h1CloseArr, meanStdLength)
+h1Mean   = ta.sma(h1Close, meanStdLength)
+h1Stdev  = ta.stdev(h1Close, meanStdLength)
 volPct   = math.max(h1VolPctRaw, 0)
 
 // ==================================================================
@@ -54,11 +63,12 @@ volPct   = math.max(h1VolPctRaw, 0)
 // ==================================================================
 var float[] fractalPrices   = array.new_float()   // preços únicos de fractais
 var int[]   fractalTouches  = array.new_int()     // contagem de toques em cada fractal
+var float[] fractalSorted   = array.new_float()   // preços de fractais ordenados
 var label[] fractalPointLabels = array.new_label()  // armazena labels de fractais
 // "fractalPrices" e "fractalTouches" são podados em "addFractal" para evitar
 // crescimento ilimitado das estruturas
 
-var float[] fibLevels       = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0)
+var float[] fibLevels       = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0, 2.618)
 levelsCount                 = array.size(fibLevels)              // total de níveis Fibonacci
 var float[] fibPrices       = array.new_float(levelsCount, 0.0)  // preços de cada nível
 var float[] fibWeights      = array.new_float(levelsCount, 0.0)  // pesos (weight) de cada nível
@@ -67,6 +77,7 @@ var float[] fibWeights      = array.new_float(levelsCount, 0.0)  // pesos (weigh
 var  line[]    fibLines     = array.new_line()        // linhas de Fibonacci (levelsCount)
 var label[]   fibLabels     = array.new_label()       // labels de “% | Peso” (levelsCount)
 var label[]   circleLabels  = array.new_label()       // Labels-círculo (levelsCount)
+var label[]   fibPivotLabels = array.new_label()      // Labels P1/P2/P3
 
 var line[]    zoneLinesLow   = array.new_line()       // linha inferior de cada zona (levelsCount)
 var line[]    zoneLinesHigh  = array.new_line()       // linha superior de cada zona (levelsCount)
@@ -76,6 +87,19 @@ var float lastHigh = na   // último pivot high (H1)
 var float lastLow  = na   // último pivot low (H1)
 var int   lastHighBar = na  // bar_index do último pivot high
 var int   lastLowBar  = na  // bar_index do último pivot low
+
+// Arrays para sequenciar pivôs e detectar P1→P2→P3
+var float[] pivotPrices = array.new_float()
+var string[] pivotTypes = array.new_string()
+var int[]    pivotBars  = array.new_int()
+
+// Dados para clusters de Fibonaccis de múltiplos swings
+var float[] clusterPrices = array.new_float()
+var int[]   clusterCounts = array.new_int()
+var int     lastAddedSwingBar = na
+
+var label diagLabel = na
+var float lastSwingScore = na
 
 // Variável global para armazenar, a cada swing, o maxWeight calculado
 var float lastMaxWeight = 0.0
@@ -91,6 +115,7 @@ var float rangeVal  = na
 
 // ==================================================================
 // 5. FUNÇÃO PARA CALCULAR Z-SCORE (DISTÂNCIA AO PREÇO MÉDIO H1)
+var label debugLbl = na
 // ==================================================================
 //     Agora retorna o valor com sinal para uso em cálculos de peso
 // ==================================================================
@@ -109,10 +134,60 @@ calcDist(_price) =>
 // ==================================================================
 calcWeight(_price, _count) =>
     float z = calcZscore(_price)
-    (_count + 1) * math.log(math.abs(z) + 1)
+    float zAdj = math.max(math.abs(z), minZScoreAdj)
+    (_count + 1) * math.log(zAdj + 1)
+
+// ==================================================================
+// 5.C FUNÇÕES DE BUSCA BINÁRIA PARA LISTA ORDENADA DE FRACTAIS
+// ==================================================================
+binarySearchNear(_arr, _val) =>
+    int lo = 0
+    int hi = array.size(_arr) - 1
+    while lo <= hi
+        int mid = math.floor((lo + hi) / 2)
+        if array.get(_arr, mid) < _val
+            lo := mid + 1
+        else
+            hi := mid - 1
+    lo
+
+binarySearchExact(_arr, _val, _gap) =>
+    int idx = binarySearchNear(_arr, _val)
+    if idx < array.size(_arr) and math.abs(array.get(_arr, idx) - _val) < _gap
+        idx
+    else if idx > 0 and math.abs(array.get(_arr, idx - 1) - _val) < _gap
+        idx - 1
+    else
+        -1
+
+// ==================================================================
+// 5.C.1 FUNÇÕES PARA REGISTRAR E CONSULTAR CLUSTERS
+// ==================================================================
+recordClusterLevel(_price) =>
+    float dist = calcDist(_price)
+    int   cSize = array.size(clusterPrices)
+    bool  matched = false
+    if cSize > 0
+        for i = 0 to cSize - 1
+            if math.abs(array.get(clusterPrices, i) - _price) <= dist
+                array.set(clusterCounts, i, array.get(clusterCounts, i) + 1)
+                matched := true
+    if not matched
+        array.push(clusterPrices, _price)
+        array.push(clusterCounts, 1)
+
+getClusterCount(_price) =>
+    float dist = calcDist(_price)
+    int   cSize = array.size(clusterPrices)
+    int   result = 0
+    if cSize > 0
+        for i = 0 to cSize - 1
+            if math.abs(array.get(clusterPrices, i) - _price) <= dist
+                result := array.get(clusterCounts, i)
+    result
 
 //===================================================================
-// 5.B FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MAs CURTA E LONGA
+// 5.D FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MAs CURTA E LONGA
 // ==================================================================
 biasFilter() =>
     float dClose = request.security(syminfo.tickerid, "D", close)
@@ -127,26 +202,251 @@ biasFilter() =>
 float biasVal   = biasFilter()
 string biasTxt  = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
 
+float ema10Daily = request.security(
+     syminfo.tickerid,
+     "D",
+     ta.ema(close, biasShortLen),
+     lookahead = barmerge.lookahead_on,
+     gaps      = barmerge.gaps_off)
+float ema50Daily = request.security(
+     syminfo.tickerid,
+     "D",
+     ta.ema(close, biasLongLen),
+     lookahead = barmerge.lookahead_on,
+     gaps      = barmerge.gaps_off)
+
+plot(ema10Daily, title="EMA 10D", color=color.orange)
+plot(ema50Daily, title="EMA 50D", color=color.blue)
+
 // ==================================================================
 // 6. FUNÇÃO PARA ADICIONAR UM FRACTAL (EVITA DUPLICATAS PRÓXIMAS)
 // ==================================================================
 addFractal(_price) =>
-    bool isDup    = false
     float gapMin  = calcDist(_price)
+    int dupIdx    = binarySearchExact(fractalSorted, _price, gapMin)
 
-    int startIdx = math.max(0, array.size(fractalPrices) - maxFractalsToCheck)
-    if array.size(fractalPrices) > 0
-        for i = startIdx to array.size(fractalPrices) - 1
-            if math.abs(_price - array.get(fractalPrices, i)) < gapMin
-                isDup := true
-                break
+    if dupIdx == -1
+        int insIdx = binarySearchNear(fractalSorted, _price)
+        array.insert(fractalSorted, insIdx, _price)
 
-    if not isDup
         array.push(fractalPrices, _price)
         array.push(fractalTouches, 0)
+
         if array.size(fractalPrices) > maxFractalsToCheck
-            array.shift(fractalPrices) 
+            float rm = array.shift(fractalPrices)
             array.shift(fractalTouches)
+            int rmIdx = binarySearchExact(fractalSorted, rm, syminfo.mintick)
+            if rmIdx != -1
+                array.remove(fractalSorted, rmIdx)
+    else
+        for i = 0 to array.size(fractalPrices) - 1
+            if math.abs(array.get(fractalPrices, i) - _price) <= gapMin
+                array.set(fractalTouches, i, array.get(fractalTouches, i) + 1)
+                break
+    0.0
+//===================================================================
+// 6.A FUNÇÃO PARA ENCONTRAR O SWING MAIS FORTE PELA DISTÂNCIA E TEMPO
+// ==================================================================
+getStrongestSwing(_minBars) =>
+    float gp1 = na
+    float gp2 = na
+    float gp3 = na
+    int   gb1 = na
+    int   gb2 = na
+    int   gb3 = na
+    int   gdir = 0
+    float bestRange = 0.0
+    int cnt = array.size(pivotPrices)
+    if cnt >= 3
+        for i = 2 to cnt - 1
+            string t1 = array.get(pivotTypes, i - 2)
+            string t2 = array.get(pivotTypes, i - 1)
+            string t3 = array.get(pivotTypes, i)
+            float p1 = array.get(pivotPrices, i - 2)
+            float p2 = array.get(pivotPrices, i - 1)
+            float p3 = array.get(pivotPrices, i)
+            int   b1 = array.get(pivotBars, i - 2)
+            int   b2 = array.get(pivotBars, i - 1)
+            int   b3 = array.get(pivotBars, i)
+            bool upSeq = t1 == "L" and t2 == "H" and t3 == "L"
+            bool dnSeq = t1 == "H" and t2 == "L" and t3 == "H"
+            if upSeq or dnSeq
+                int dir = upSeq ? 1 : -1
+                float rangePct = math.abs(p2 - p1) / p1 * 100
+                int barGap = b3 - b1
+                bool biasOk = biasVal == 0 or dir == biasVal
+                if rangePct >= minSwingPct and barGap >= _minBars and biasOk and rangePct > bestRange
+                    gp1 := p1
+                    gp2 := p2
+                    gp3 := p3
+                    gb1 := b1
+                    gb2 := b2
+                    gb3 := b3
+                    gdir := dir
+                    bestRange := rangePct
+    [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
+
+// ==================================================================
+// 6.A.1 SELEÇÃO INTELIGENTE DE PIVOTS DOMINANTES
+// ==================================================================
+getStrongestPivots(_pivots, _types, _bars) =>
+    int cnt = array.size(_pivots)
+    float bestScore = -1.0
+    float _p1 = na
+    float _p2 = na
+    float _p3 = na
+    int _p1Bar = na
+    int _p2Bar = na
+    int _p3Bar = na
+    int _dir = 0
+    if cnt >= 3 and array.size(_types) >= 3 and array.size(_bars) >= 3
+        for i = 0 to cnt - 3
+            string t1 = array.get(_types, i)
+            string t2 = array.get(_types, i + 1)
+            string t3 = array.get(_types, i + 2)
+            float p1 = array.get(_pivots, i)
+            float p2 = array.get(_pivots, i + 1)
+            float p3 = array.get(_pivots, i + 2)
+            int b1 = array.get(_bars, i)
+            int b2 = array.get(_bars, i + 1)
+            int b3 = array.get(_bars, i + 2)
+            int dur1 = b2 - b1
+            int dur2 = b3 - b2
+            float ranges = math.abs(p2 - p1)
+            float pb = math.abs(p2 - p3)
+            float pbRatio = ranges > 0 ? pb / ranges : 0.0
+            bool isUp = (t1 == "L" and t2 == "H" and t3 == "L")
+            bool isDn = (t1 == "H" and t2 == "L" and t3 == "H")
+            int dir = isUp ? 1 : isDn ? -1 : 0
+            if dir != 0
+                float score = ranges * pbRatio * (dur1 + dur2) * (biasVal == dir ? 1.5 : 1.0)
+                if score > bestScore
+                    bestScore := score
+                    _p1 := p1
+                    _p2 := p2
+                    _p3 := p3
+                    _p1Bar := b1
+                    _p2Bar := b2
+                    _p3Bar := b3
+                    _dir := dir
+    [_p1, _p2, _p3, _p1Bar, _p2Bar, _p3Bar, _dir]
+
+// ==================================================================
+// 6.B FUNÇÃO QUE CONFIRMA ROMPIMENTO COM IMPULSO
+// ==================================================================
+hasImpulseBreakout(_dir, _p2) =>
+    float realBody = math.abs(close - open)
+    float buffer = atrValue * 0.1
+    bool breakout = _dir == 1 ? close > _p2 + buffer : close < _p2 - buffer
+    bool impulse = realBody > atrValue
+    breakout and impulse
+
+// ==================================================================
+// 6.B.1 DETECÇÃO DE CANDLE DE ROMPIMENTO
+// ==================================================================
+isBreakoutCandle() =>
+    float body = math.abs(close - open)
+    float atrNow = ta.atr(14)
+    body > 1.2 * atrNow and close > open
+
+// ==================================================================
+// 6.B FUNÇÃO PARA DEFINIR P1, P2, P3 E O MODO DE FIBONACCI
+// ==================================================================
+determineFib() =>
+    float _p1 = na
+    float _p2 = na
+    float _p3 = na
+    int   _dir = 0
+    string _mode = "Retracement"
+    int   _p1Bar = na
+    int   _p2Bar = na
+    int   _p3Bar = na
+
+    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars)
+    [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(minSwingBars)
+
+    int cnt = array.size(pivotPrices)
+    if not na(sp1)
+        _p1 := sp1
+        _p2 := sp2
+        _p3 := sp3
+        _p1Bar := sp1Bar
+        _p2Bar := sp2Bar
+        _p3Bar := sp3Bar
+        _dir := spDir
+    else if not na(sgP1)
+        _p1 := sgP1
+        _p2 := sgP2
+        _p3 := sgP3
+        _p1Bar := sgB1
+        _p2Bar := sgB2
+        _p3Bar := sgB3
+        _dir := sgDir
+    else if cnt >= 2
+        string tLast = array.get(pivotTypes, cnt - 1)
+        string tPrev = array.get(pivotTypes, cnt - 2)
+        float pLast = array.get(pivotPrices, cnt - 1)
+        float pPrev = array.get(pivotPrices, cnt - 2)
+        int   bLast = array.get(pivotBars,   cnt - 1)
+        int   bPrev = array.get(pivotBars,   cnt - 2)
+
+        if cnt >= 3
+            string tThird = array.get(pivotTypes, cnt - 3)
+            float pThird = array.get(pivotPrices, cnt - 3)
+            int   bThird = array.get(pivotBars,   cnt - 3)
+
+            if tThird == "L" and tPrev == "H" and tLast == "L"
+                _p1 := pThird
+                _p2 := pPrev
+                _p3 := pLast
+                _p1Bar := bThird
+                _p2Bar := bPrev
+                _p3Bar := bLast
+                _dir := 1
+            else if tThird == "H" and tPrev == "L" and tLast == "H"
+                _p1 := pThird
+                _p2 := pPrev
+                _p3 := pLast
+                _p1Bar := bThird
+                _p2Bar := bPrev
+                _p3Bar := bLast
+                _dir := -1
+        if _dir == 0
+            if tPrev == "L" and tLast == "H"
+                _p1 := pPrev
+                _p2 := pLast
+                _p1Bar := bPrev
+                _p2Bar := bLast
+                _dir := 1
+            else if tPrev == "H" and tLast == "L"
+                _p1 := pPrev
+                _p2 := pLast
+                _p1Bar := bPrev
+                _p2Bar := bLast
+                _dir := -1
+
+    float pbPct = na
+    bool breakout = false
+    bool isBreakoutCandle = isBreakoutCandle()
+    if not na(_p1) and not na(_p2)
+        if not na(_p3)
+            pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
+            breakout := hasImpulseBreakout(_dir, _p2) and isBreakoutCandle
+
+        string m = fibModeInput
+        if fibModeInput == "Auto"
+            if breakout
+                if not na(pbPct) and pbPct > 0.618
+                    m := "Projection"
+                else
+                    m := "Extension"
+            else
+                m := "Retracement"
+        if biasVal != 0 and _dir != biasVal
+            m := "Retracement"
+        _mode := m
+
+    [_p1, _p2, _p3, _dir, _mode, _p1Bar, _p2Bar, _p3Bar, pbPct, breakout]
 
 // ==================================================================
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
@@ -173,6 +473,8 @@ updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWid
 
         if _weight > lastMaxWeight * 0.50
             int sizeC = math.round(5 * (_weight / lastMaxWeight)) + 1
+            // float off   = calcDist(_priceF) * 0.6
+            // float yOff  = _trendDir == 1 ? _priceF + off : _priceF - off
             label.set_xy(fibCircleLabel, bar_index - 1, _priceF)
             label.set_style(fibCircleLabel, label.style_circle)
             label.set_size(fibCircleLabel, sizeC)
@@ -208,6 +510,24 @@ updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor)
         line.set_extend(zoneLowLine, extend.none)
         line.set_extend(zoneHighLine, extend.none)
         linefill.set_color(zoneFill, color.new(color.blue, 98))
+
+// ==================================================================
+// 6.D FUNÇÕES DE APOIO PARA ESCONDER OBJETOS AO DESATIVAR OS TOGGLES
+// ==================================================================
+hideFibElements() =>
+    for i = 0 to levelsCount - 1
+        updateFibLineAndLabel(i, false, 0, 0, color.gray, 1, line.style_dotted, 0)
+    for idx = 0 to array.size(fibPivotLabels) - 1
+        label.set_text(array.get(fibPivotLabels, idx), "")
+
+hideZones() =>
+    for i = 0 to levelsCount - 1
+        updateFibZone(i, false, 0, 0, color.blue, color.new(color.blue, 98))
+
+clearFractalPoints() =>
+    for i = 0 to array.size(fractalPointLabels) - 1
+        label.delete(array.get(fractalPointLabels, i))
+    array.clear(fractalPointLabels)
 
 // ==================================================================
 // 7. COLETA DE FRACTAIS H1 (pivot high/low)
@@ -249,6 +569,9 @@ if showFractalPoints
         array.push(fractalPointLabels, fractalLowLabel)
         if array.size(fractalPointLabels) > maxFractalsToCheck
             label.delete(array.shift(fractalPointLabels))
+else
+    clearFractalPoints()
+
 // ==================================================================
 // 10. ATUALIZAÇÃO DE ÚLTIMOS SWINGS (HIGH / LOW) + “Replay”
 // ==================================================================
@@ -256,6 +579,13 @@ if not na(pivotHighH1)
     if pivotHighH1 != prevHigh
         swingsCount += 1
         array.push(swingBars, bar_index)
+        array.push(pivotPrices, pivotHighH1)
+        array.push(pivotTypes, "H")
+        array.push(pivotBars, bar_index)
+        if array.size(pivotPrices) > 10
+            array.shift(pivotPrices)
+            array.shift(pivotTypes)
+            array.shift(pivotBars)
     lastHigh := pivotHighH1
     lastHighBar := bar_index
     topVal    := math.max(lastHigh, lastLow)
@@ -266,6 +596,13 @@ if not na(pivotLowH1)
     if pivotLowH1 != prevLow
         swingsCount += 1
         array.push(swingBars, bar_index)
+        array.push(pivotPrices, pivotLowH1)
+        array.push(pivotTypes, "L")
+        array.push(pivotBars, bar_index)
+        if array.size(pivotPrices) > 10
+            array.shift(pivotPrices)
+            array.shift(pivotTypes)
+            array.shift(pivotBars)
     lastLow := pivotLowH1
     lastLowBar := bar_index
     topVal    := math.max(lastHigh, lastLow)
@@ -294,6 +631,11 @@ if barstate.isfirst
         array.push(fibLabels, flabel)
         array.push(fibLines, phline)
 
+    // Labels para P1/P2/P3
+    for _ = 0 to 2
+        label plbl = label.new(x = bar_index, y = 0, text = "", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(color.orange, 0), textcolor = color.white, size = size.tiny)
+        array.push(fibPivotLabels, plbl)
+
     // (B) Placeholders para zonas (linhas + linefill) – invisíveis em y = 0
     for i = 0 to levelsCount - 1
         line zoneLowLine = line.new( x1     = bar_index, y1 = 0,x2     = bar_index + 1, y2 = 0, xloc   = xloc.bar_index, extend = extend.right,color  = color.new(color.blue, 98), width = 1)
@@ -318,9 +660,9 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
             ok := false
     if ok and doAutoHide and _pctW < weightMinPct
         ok := false
-    if ok and topN > 0 and not array.includes(topIndices, _idx)
+    if ok and topNMode == "Strict" and topN > 0 and not array.includes(topIndices, _idx)
         ok := false
-    if ok and topN == 0 and _w < threshold
+    if ok and topNMode != "Strict" and _w < threshold
         ok := false
     if ok
         if biasVal == 1 and _lvlFrac <= 1 and _lvlFrac != 1
@@ -329,12 +671,57 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
             ok := false
     ok
 
-if not na(lastHigh) and not na(lastLow)
-    int trendDir = biasVal != 0 ? int(biasVal) : (not na(lastLowBar) and not na(lastHighBar) ? (lastLowBar > lastHighBar ? 1 : -1) : 0)
+[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = determineFib()
+
+if showDiagnostics and not na(fibP1)
+    string txtDiag = "Modo: " + fibModeActive + "\n"
+    txtDiag += "P1→P2: " + str.tostring(fibP1) + " → " + str.tostring(fibP2) + "\n"
+    txtDiag += "Pullback %: " + str.tostring(fibPbPct * 100, "#.##") + "%\n"
+    txtDiag += "Breakout: " + (fibBreakout ? "Sim" : "Não")
+    if na(diagLabel)
+        diagLabel := label.new(bar_index, high, txtDiag, style=label.style_label_down, color=color.gray, textcolor=color.white, size=size.small)
+    else
+        label.set_xy(diagLabel, bar_index, high)
+        label.set_text(diagLabel, txtDiag)
+else
+    if not na(diagLabel)
+        label.delete(diagLabel)
+        diagLabel := na
+
+if not na(fibP1) and not na(fibP2)
+    float baseRange = math.abs(fibP2 - fibP1)
+    if fibDir == 1
+        if fibModeActive == "Retracement"
+            bottomVal := fibP1
+            topVal    := fibP2
+        else if fibModeActive == "Extension"
+            bottomVal := fibP2
+            topVal    := fibP2 + baseRange
+        else
+            bottomVal := fibP3
+            topVal    := fibP3 + baseRange
+    else
+        if fibModeActive == "Retracement"
+            topVal    := fibP1
+            bottomVal := fibP2
+        else if fibModeActive == "Extension"
+            topVal    := fibP2
+            bottomVal := fibP2 - baseRange
+        else
+            topVal    := fibP3
+            bottomVal := fibP3 - baseRange
+    rangeVal := math.abs(topVal - bottomVal)
     for i = 0 to levelsCount - 1
         float lvlFrac  = array.get(fibLevels, i)
-        float lvlPrice = trendDir == -1 ? topVal - rangeVal * lvlFrac : bottomVal + rangeVal * lvlFrac
+        float lvlPrice = na
+        if fibModeActive == "Retracement"
+            lvlPrice := fibDir == 1 ? fibP2 - baseRange * lvlFrac : fibP2 + baseRange * lvlFrac
+        else if fibModeActive == "Extension"
+            lvlPrice := fibDir == 1 ? fibP2 + baseRange * lvlFrac : fibP2 - baseRange * lvlFrac
+        else
+            lvlPrice := fibDir == 1 ? fibP3 + baseRange * lvlFrac : fibP3 - baseRange * lvlFrac
         array.set(fibPrices, i, lvlPrice)
+    int trendDir = fibDir
 
     // ==================================================================
     // 12.A) CÁLCULO DE “weight” E maxWeight
@@ -405,6 +792,7 @@ if not na(lastHigh) and not na(lastLow)
             float weight   = array.get(fibWeights, i)
             float lvlFrac  = array.get(fibLevels, i)
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
+            int   clustCnt = getClusterCount(priceF) + 1
 
             // ==== FILTROS ====
             bool validLevel = isDisplayAllowed(weight, pctW, i, lvlFrac)
@@ -412,6 +800,9 @@ if not na(lastHigh) and not na(lastLow)
             if not validLevel
                 // Esconde linha, label e círculo
                 updateFibLineAndLabel(i, false, priceF, weight, color.gray, 1, line.style_dotted, trendDir)
+                if topNMode == "Strict" and topN > 0 and weight >= minSignificance and not array.includes(topIndices, i)
+                    label fibPriceLabel = array.get(fibLabels, i)
+                    label.set_text(fibPriceLabel, "Ignorado por TopN")
                 continue
 
             // ==== COR E ESTILO ====
@@ -421,12 +812,38 @@ if not na(lastHigh) and not na(lastLow)
 
 
             color baseColor = isTop    ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.new(color.blue, 80)
-            int lw = isTop  ? 3 : isHigh ? 2 : 1
+            int lw = (isTop  ? 3 : isHigh ? 2 : 1) + (clustCnt - 1)
+            color baseColorAdj = color.new(baseColor, 80)
 
             styleLine = (isTop or lvlFrac == 0.0 or lvlFrac == 1.0) ? line.style_solid : line.style_dotted
 
-            updateFibLineAndLabel(i, true, priceF, weight, baseColor, lw, styleLine, trendDir)
+            updateFibLineAndLabel(i, true, priceF, weight, baseColorAdj, lw, styleLine, trendDir)
+    else
+        hideFibElements()
 
+    if showFibPivots and not na(fibP1Bar) and not na(fibP2Bar)
+        float offset = syminfo.mintick * 5
+        label lp1 = array.get(fibPivotLabels, 0)
+        label lp2 = array.get(fibPivotLabels, 1)
+        label lp3 = array.get(fibPivotLabels, 2)
+
+        label.set_xy(lp1, fibP1Bar, fibP1 + (fibDir == 1 ? -offset : offset))
+        label.set_text(lp1, "P1")
+        label.set_style(lp1, fibDir == 1 ? label.style_label_up : label.style_label_down)
+
+        label.set_xy(lp2, fibP2Bar, fibP2 + (fibDir == 1 ? offset : -offset))
+        label.set_text(lp2, "P2")
+        label.set_style(lp2, fibDir == 1 ? label.style_label_down : label.style_label_up)
+
+        if not na(fibP3Bar)
+            label.set_xy(lp3, fibP3Bar, fibP3 + (fibDir == 1 ? -offset : offset))
+            label.set_text(lp3, "P3")
+            label.set_style(lp3, fibDir == 1 ? label.style_label_up : label.style_label_down)
+        else
+            label.set_text(lp3, "")
+    else
+        for idx = 0 to array.size(fibPivotLabels) - 1
+            label.set_text(array.get(fibPivotLabels, idx), "")
     // ==================================================================
     // 12.D) REAPROVEITAMENTO DE PLACEHOLDERS PARA ZONAS DE CONFLUÊNCIA
     // ==================================================================
@@ -442,6 +859,7 @@ if not na(lastHigh) and not na(lastLow)
 
             // ==== FILTROS ====
             bool validZone = isDisplayAllowed(weight, pctW, i, lvlFrac)
+            int   clustCnt = getClusterCount(priceF) + 1
 
             if not validZone
                 updateFibZone(i, false, lowZone, highZone, color.blue, color.new(color.blue, 98))
@@ -455,12 +873,41 @@ if not na(lastHigh) and not na(lastLow)
             color borderColor = isTop ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.blue
             color fillColor   = isTop ? color.new(color.red, 80) : isHigh   ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
 
-            updateFibZone(i, true, lowZone, highZone, borderColor, fillColor)
+            color fillAdj     = color.new(fillColor, 80)
+
+            updateFibZone(i, true, lowZone, highZone, borderColor, fillAdj)
+    else
+        hideZones()
+
+    if fibBreakout and not na(fibP3Bar)
+        if na(lastAddedSwingBar) or fibP3Bar != lastAddedSwingBar
+            for i = 0 to levelsCount - 1
+                recordClusterLevel(array.get(fibPrices, i))
+            lastAddedSwingBar := fibP3Bar
+
+    // Cálculo de pontuação do swing
+    int startIdxScore = math.max(0, array.size(fractalPrices) - maxFractalsToCheck)
+    int touchesScore = 0
+    for j = startIdxScore to array.size(fractalPrices) - 1
+        float fPrice = array.get(fractalPrices, j)
+        bool between = fibDir == 1 ? (fPrice >= fibP1 and fPrice <= fibP2) : (fPrice <= fibP1 and fPrice >= fibP2)
+        if between
+            touchesScore += array.get(fractalTouches, j)
+    float rangeScore = math.abs(fibP2 - fibP1)
+    float pbScore = na(fibPbPct) ? 0 : fibPbPct
+    lastSwingScore := rangeScore * pbScore * touchesScore * (biasVal == fibDir ? 1.5 : 1.0)
+
+    if not showFibLines
+        hideFibElements()
+
+else
+    hideFibElements()
+    hideZones()
 
 // ==================================================================
 // 13. TABELA DE STATUS (PARÂMETROS)
 // ==================================================================
-var table tableStatus = table.new(position.top_right, 2, 10, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
+var table tableStatus = table.new(position.top_right, 2, 12, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
 if barstate.isfirst
     // Cabeçalhos
     table.cell(tableStatus, 0, 0, "Parâmetro",            bgcolor=color.new(color.blue, 30), text_color=color.white)
@@ -472,7 +919,9 @@ if barstate.isfirst
     table.cell(tableStatus, 0, 6, "Signif. Mín (peso)",   text_color=color.white)
     table.cell(tableStatus, 0, 7, "Período Fractal (n)",  text_color=color.white)
     table.cell(tableStatus, 0, 8, "Top N Níveis",         text_color=color.white)
-    
+    table.cell(tableStatus, 0, 10, "Modo TopN",           text_color=color.white)
+    table.cell(tableStatus, 0, 11, "Score",               text_color=color.white)
+
     string biasHeading = "Bias MA" + str.tostring(biasShortLen) + "/" + str.tostring(biasLongLen)
     table.cell(tableStatus, 0, 9, biasHeading,            text_color=color.white)
 
@@ -499,19 +948,23 @@ table.cell(tableStatus, 1, 6, zTxt,     text_color=color.yellow)
 table.cell(tableStatus, 1, 7, nTxt,     text_color=color.white)
 table.cell(tableStatus, 1, 8, topNTxt,  text_color=topNColor)
 table.cell(tableStatus, 1, 9, biasTxt,  text_color=color.white)
+table.cell(tableStatus, 1, 10, topNMode, text_color=color.white)
+table.cell(tableStatus, 1, 11, str.tostring(lastSwingScore, "#.##"), text_color=color.white)
 
 // ==================================================================
 // 14. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
 // ==================================================================
 // tableWeights é declarado no bloco de variáveis persistentes
-if barstate.islast
+if barstate.isfirst
     // Cabeçalhos
     table.cell(tableWeights, 0, 0, "Nível (%)",  text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 1, 0, "# Fractais", text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 2, 0, "Z-score",    text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 3, 0, "Peso",       text_color=color.white, bgcolor=color.new(color.blue, 30))
     table.cell(tableWeights, 4, 0, "Incluído?",  text_color=color.white, bgcolor=color.new(color.blue, 30))
-
+    // Atualiza valores a cada barra para evitar exibir apenas configurações vazias
+if lastMaxWeight > 0
+    table.clear(tableWeights, 1, 1, 4, levelsCount)  // limpa células de dados
     for i = 0 to levelsCount - 1
         float lvlFrac  = array.get(fibLevels, i)
         float priceF   = array.get(fibPrices, i)
@@ -540,9 +993,21 @@ if barstate.islast
 
         color cellBg = (wt == lastMaxWeight) ? color.new(color.red, 50) : (wt >= lastMaxWeight * 0.75) ? color.new(color.yellow, 50) : (wt >= lastMaxWeight * 0.50) ? color.new(color.green, 50) : color.new(color.blue, 80)
 
-        table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"),text_color = color.white, bgcolor = cellBg)
-        table.cell(tableWeights, 4, i + 1, inclTxt, text_color = color.white)
+        table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"), text_color=color.white, bgcolor=cellBg)
+        table.cell(tableWeights, 4, i + 1, inclTxt, text_color=color.white)
 
+alertcondition(na(fibP1) or na(fibP2), title="Fibonacci invalido", message="Niveis de Fibonacci ausentes")
+alertcondition(lastMaxWeight == 0, title="Peso zero", message="Pesos zerados - volatilidade baixa")
+if na(debugLbl)
+    debugLbl := label.new(x = bar_index, y = close, text = "", xloc = xloc.bar_index, yloc = yloc.price, color = color.new(color.red, 100))
+string msg = ""
+if na(fibP1) or na(fibP2)
+    msg += "Fibo"
+if lastMaxWeight == 0
+    msg += " Peso=0"
+label.set_xy(debugLbl, bar_index, close)
+label.set_text(debugLbl, msg)
+label.set_color(debugLbl, color.new(color.red, msg == "" ? 100 : 0))
 // ==================================================================
 // FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
 // ==================================================================
