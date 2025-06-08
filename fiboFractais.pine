@@ -35,6 +35,7 @@ replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas úl
 
 // Quantos swings mostrar ao utilizar o modo de replay
 replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
+minZScoreAdj     = input.float(0.05,  "Z-score mínimo p/ peso",       step=0.01, minval=0.0)
 
 // Constants for weight classification
 HIGH_WEIGHT_FRAC   = 0.75
@@ -98,6 +99,7 @@ var float rangeVal  = na
 
 // ==================================================================
 // 5. FUNÇÃO PARA CALCULAR Z-SCORE (DISTÂNCIA AO PREÇO MÉDIO H1)
+var label debugLbl = na
 // ==================================================================
 //     Agora retorna o valor com sinal para uso em cálculos de peso
 // ==================================================================
@@ -116,7 +118,8 @@ calcDist(_price) =>
 // ==================================================================
 calcWeight(_price, _count) =>
     float z = calcZscore(_price)
-    (_count + 1) * math.log(math.abs(z) + 1)
+    float zAdj = math.max(math.abs(z), minZScoreAdj)
+    (_count + 1) * math.log(zAdj + 1)
 
 // ==================================================================
 // 5.C FUNÇÕES DE BUSCA BINÁRIA PARA LISTA ORDENADA DE FRACTAIS
@@ -710,6 +713,18 @@ if lastMaxWeight > 0
         table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"), text_color=color.white, bgcolor=cellBg)
         table.cell(tableWeights, 4, i + 1, inclTxt, text_color=color.white)
 
+alertcondition(na(fibP1) or na(fibP2), title="Fibonacci invalido", message="Niveis de Fibonacci ausentes")
+alertcondition(lastMaxWeight == 0, title="Peso zero", message="Pesos zerados - volatilidade baixa")
+if na(debugLbl)
+    debugLbl := label.new(x = bar_index, y = close, text = "", xloc = xloc.bar_index, yloc = yloc.price, color = color.new(color.red, 100))
+string msg = ""
+if na(fibP1) or na(fibP2)
+    msg += "Fibo"
+if lastMaxWeight == 0
+    msg += " Peso=0"
+label.set_xy(debugLbl, bar_index, close)
+label.set_text(debugLbl, msg)
+label.set_color(debugLbl, color.new(color.red, msg == "" ? 100 : 0))
 // ==================================================================
 // FIM DO v2.4.4 (placeholders fixos, filtros unificados, sem vazamento)
 // ==================================================================
