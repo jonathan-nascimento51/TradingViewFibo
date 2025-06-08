@@ -22,6 +22,7 @@ n                  = input.int(5,       "Período do Fractal (n)",              
 maxFractalsToCheck = input.int(50,      "Máx. Fractais a Checar",              minval=1)
 
 topN               = input.int(0,       "Mostrar Top N Níveis (0=OFF)",        minval=0, maxval=10)
+topNMode           = input.string("OFF", "Modo TopN", options=["OFF", "Soft", "Strict"])
 
 // Comprimentos das MAs para cálculo de viés
 biasShortLen       = input.int(10,      "Período MA Curta (Bias)",             minval=1)
@@ -37,6 +38,8 @@ replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas úl
 // Quantos swings mostrar ao utilizar o modo de replay
 replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
 minZScoreAdj     = input.float(0.05,  "Z-score mínimo p/ peso",       step=0.01, minval=0.0)
+minSwingPct        = input.float(1.0,   "Range mínimo P1-P2 (%)",      step=0.1, minval=0.0)
+minSwingBars       = input.int(3,       "Barras mínimas entre P1-P3",  minval=1)
 
 // Constants for weight classification
 HIGH_WEIGHT_FRAC   = 0.75
@@ -185,8 +188,60 @@ addFractal(_price) =>
             if rmIdx != -1
                 array.remove(fractalSorted, rmIdx)
 
+//===================================================================
+// 6.A FUNÇÃO PARA ENCONTRAR O SWING MAIS FORTE PELA DISTÂNCIA E TEMPO
 // ==================================================================
-// 6.A FUNÇÃO PARA DEFINIR P1, P2, P3 E O MODO DE FIBONACCI
+getStrongestSwing(_minBars) =>
+    float gp1 = na
+    float gp2 = na
+    float gp3 = na
+    int   gb1 = na
+    int   gb2 = na
+    int   gb3 = na
+    int   gdir = 0
+    float bestRange = 0.0
+    int cnt = array.size(pivotPrices)
+    if cnt >= 3
+        for i = 2 to cnt - 1
+            string t1 = array.get(pivotTypes, i - 2)
+            string t2 = array.get(pivotTypes, i - 1)
+            string t3 = array.get(pivotTypes, i)
+            float p1 = array.get(pivotPrices, i - 2)
+            float p2 = array.get(pivotPrices, i - 1)
+            float p3 = array.get(pivotPrices, i)
+            int   b1 = array.get(pivotBars, i - 2)
+            int   b2 = array.get(pivotBars, i - 1)
+            int   b3 = array.get(pivotBars, i)
+            bool upSeq = t1 == "L" and t2 == "H" and t3 == "L"
+            bool dnSeq = t1 == "H" and t2 == "L" and t3 == "H"
+            if upSeq or dnSeq
+                int dir = upSeq ? 1 : -1
+                float rangePct = math.abs(p2 - p1) / p1 * 100
+                int barGap = b3 - b1
+                bool biasOk = biasVal == 0 or dir == biasVal
+                if rangePct >= minSwingPct and barGap >= _minBars and biasOk and rangePct > bestRange
+                    gp1 := p1
+                    gp2 := p2
+                    gp3 := p3
+                    gb1 := b1
+                    gb2 := b2
+                    gb3 := b3
+                    gdir := dir
+                    bestRange := rangePct
+    [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
+
+// ==================================================================
+// 6.B FUNÇÃO QUE CONFIRMA ROMPIMENTO COM IMPULSO
+// ==================================================================
+hasImpulseBreakout(_dir, _p2) =>
+    float realBody = math.abs(close - open)
+    float buffer = atrValue * 0.1
+    bool breakout = _dir == 1 ? close > _p2 + buffer : close < _p2 - buffer
+    bool impulse = realBody > atrValue
+    breakout and impulse
+
+// ==================================================================
+// 6.B FUNÇÃO PARA DEFINIR P1, P2, P3 E O MODO DE FIBONACCI
 // ==================================================================
 determineFib() =>
     float _p1 = na
@@ -198,8 +253,18 @@ determineFib() =>
     int   _p2Bar = na
     int   _p3Bar = na
 
+    [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(minSwingBars)
+
     int cnt = array.size(pivotPrices)
-    if cnt >= 2
+    if not na(sgP1)
+        _p1 := sgP1
+        _p2 := sgP2
+        _p3 := sgP3
+        _p1Bar := sgB1
+        _p2Bar := sgB2
+        _p3Bar := sgB3
+        _dir := sgDir
+    else if cnt >= 2
         string tLast = array.get(pivotTypes, cnt - 1)
         string tPrev = array.get(pivotTypes, cnt - 2)
         float pLast = array.get(pivotPrices, cnt - 1)
@@ -247,7 +312,7 @@ determineFib() =>
         bool breakout = false
         if not na(_p3)
             pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
-            breakout := _dir == 1 ? close > _p2 : close < _p2
+            breakout := hasImpulseBreakout(_dir, _p2)
 
         string m = fibModeInput
         if fibModeInput == "Auto"
@@ -258,6 +323,8 @@ determineFib() =>
                     m := "Extension"
             else
                 m := "Retracement"
+        if biasVal != 0 and _dir != biasVal
+            m := "Retracement"
         _mode := m
 
     [_p1, _p2, _p3, _dir, _mode, _p1Bar, _p2Bar, _p3Bar]
@@ -474,9 +541,9 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
             ok := false
     if ok and doAutoHide and _pctW < weightMinPct
         ok := false
-    if ok and topN > 0 and not array.includes(topIndices, _idx)
+    if ok and topNMode == "Strict" and topN > 0 and not array.includes(topIndices, _idx)
         ok := false
-    if ok and topN == 0 and _w < threshold
+    if ok and topNMode != "Strict" and _w < threshold
         ok := false
     if ok
         if biasVal == 1 and _lvlFrac <= 1 and _lvlFrac != 1
@@ -598,6 +665,9 @@ if not na(fibP1) and not na(fibP2)
             if not validLevel
                 // Esconde linha, label e círculo
                 updateFibLineAndLabel(i, false, priceF, weight, color.gray, 1, line.style_dotted, trendDir)
+                if topNMode == "Strict" and topN > 0 and weight >= minSignificance and not array.includes(topIndices, i)
+                    label fibPriceLabel = array.get(fibLabels, i)
+                    label.set_text(fibPriceLabel, "Ignorado por TopN")
                 continue
 
             // ==== COR E ESTILO ====
@@ -620,12 +690,12 @@ if not na(fibP1) and not na(fibP2)
         label lp2 = array.get(fibPivotLabels, 1)
         label lp3 = array.get(fibPivotLabels, 2)
         label.set_xy(lp1, fibP1Bar, fibP1)
-        label.set_text(lp1, "P1")
+        label.set_text(lp1, fibDir == 1 ? "🔺" : "🔻")
         label.set_xy(lp2, fibP2Bar, fibP2)
-        label.set_text(lp2, "P2")
+        label.set_text(lp2, fibDir == 1 ? "🔻" : "🔺")
         if not na(fibP3Bar)
             label.set_xy(lp3, fibP3Bar, fibP3)
-            label.set_text(lp3, "P3")
+            label.set_text(lp3, fibDir == 1 ? "🔺" : "🔻")
         else
             label.set_text(lp3, "")
     else
@@ -673,7 +743,7 @@ else
 // ==================================================================
 // 13. TABELA DE STATUS (PARÂMETROS)
 // ==================================================================
-var table tableStatus = table.new(position.top_right, 2, 10, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
+var table tableStatus = table.new(position.top_right, 2, 11, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
 if barstate.isfirst
     // Cabeçalhos
     table.cell(tableStatus, 0, 0, "Parâmetro",            bgcolor=color.new(color.blue, 30), text_color=color.white)
@@ -685,7 +755,8 @@ if barstate.isfirst
     table.cell(tableStatus, 0, 6, "Signif. Mín (peso)",   text_color=color.white)
     table.cell(tableStatus, 0, 7, "Período Fractal (n)",  text_color=color.white)
     table.cell(tableStatus, 0, 8, "Top N Níveis",         text_color=color.white)
-    
+    table.cell(tableStatus, 0, 10, "Modo TopN",           text_color=color.white)
+
     string biasHeading = "Bias MA" + str.tostring(biasShortLen) + "/" + str.tostring(biasLongLen)
     table.cell(tableStatus, 0, 9, biasHeading,            text_color=color.white)
 
@@ -712,6 +783,7 @@ table.cell(tableStatus, 1, 6, zTxt,     text_color=color.yellow)
 table.cell(tableStatus, 1, 7, nTxt,     text_color=color.white)
 table.cell(tableStatus, 1, 8, topNTxt,  text_color=topNColor)
 table.cell(tableStatus, 1, 9, biasTxt,  text_color=color.white)
+table.cell(tableStatus, 1, 10, topNMode, text_color=color.white)
 
 // ==================================================================
 // 14. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
