@@ -10,6 +10,7 @@ showFractalPoints  = input.bool(true,   "Mostrar Fractais H1")
 showFibLines       = input.bool(true,   "Mostrar Linhas Fibonacci")
 showZones          = input.bool(true,   "Mostrar Zonas de Confluência")
 showFibPivots      = input.bool(false,  "Mostrar Pivôs do Fibonacci")
+showDiagnostics    = input.bool(false,  "Training Mode")
 fibModeInput       = input.string("Auto", "Modo Fibonacci", options=["Auto", "Retracement", "Extension", "Projection"])
 
 atrLength          = input.int(14,      "Comprimento do ATR",                  minval=5)
@@ -92,6 +93,14 @@ var float[] pivotPrices = array.new_float()
 var string[] pivotTypes = array.new_string()
 var int[]    pivotBars  = array.new_int()
 
+// Dados para clusters de Fibonaccis de múltiplos swings
+var float[] clusterPrices = array.new_float()
+var int[]   clusterCounts = array.new_int()
+var int     lastAddedSwingBar = na
+
+var label diagLabel = na
+var float lastSwingScore = na
+
 // Variável global para armazenar, a cada swing, o maxWeight calculado
 var float lastMaxWeight = 0.0
 
@@ -150,6 +159,24 @@ binarySearchExact(_arr, _val, _gap) =>
         idx - 1
     else
         -1
+
+// ==================================================================
+// 5.C.1 FUNÇÕES PARA REGISTRAR E CONSULTAR CLUSTERS
+// ==================================================================
+recordClusterLevel(_price) =>
+    float dist = calcDist(_price)
+    for i = 0 to array.size(clusterPrices) - 1
+        if math.abs(array.get(clusterPrices, i) - _price) <= dist
+            array.set(clusterCounts, i, array.get(clusterCounts, i) + 1)
+    array.push(clusterPrices, _price)
+    array.push(clusterCounts, 1)
+
+getClusterCount(_price) =>
+    float dist = calcDist(_price)
+    for i = 0 to array.size(clusterPrices) - 1
+        if math.abs(array.get(clusterPrices, i) - _price) <= dist
+            array.get(clusterCounts, i)
+    0
 
 //===================================================================
 // 5.D FUNÇÃO PARA CALCULAR VIÉS DIÁRIO COM MAs CURTA E LONGA
@@ -231,6 +258,51 @@ getStrongestSwing(_minBars) =>
     [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
 
 // ==================================================================
+// 6.A.1 SELEÇÃO INTELIGENTE DE PIVOTS DOMINANTES
+// ==================================================================
+getStrongestPivots(_pivots, _types, _bars) =>
+    int cnt = array.size(_pivots)
+    float bestScore = -1.0
+    float _p1 = na
+    float _p2 = na
+    float _p3 = na
+    int _p1Bar = na
+    int _p2Bar = na
+    int _p3Bar = na
+    int _dir = 0
+    if cnt >= 3 and array.size(_types) >= 3 and array.size(_bars) >= 3
+        for i = 0 to cnt - 3
+            string t1 = array.get(_types, i)
+            string t2 = array.get(_types, i + 1)
+            string t3 = array.get(_types, i + 2)
+            float p1 = array.get(_pivots, i)
+            float p2 = array.get(_pivots, i + 1)
+            float p3 = array.get(_pivots, i + 2)
+            int b1 = array.get(_bars, i)
+            int b2 = array.get(_bars, i + 1)
+            int b3 = array.get(_bars, i + 2)
+            int dur1 = b2 - b1
+            int dur2 = b3 - b2
+            float ranges = math.abs(p2 - p1)
+            float pb = math.abs(p2 - p3)
+            float pbRatio = ranges > 0 ? pb / ranges : 0.0
+            bool isUp = (t1 == "L" and t2 == "H" and t3 == "L")
+            bool isDn = (t1 == "H" and t2 == "L" and t3 == "H")
+            int dir = isUp ? 1 : isDn ? -1 : 0
+            if dir != 0
+                float score = ranges * pbRatio * (dur1 + dur2) * (biasVal == dir ? 1.5 : 1.0)
+                if score > bestScore
+                    bestScore := score
+                    _p1 := p1
+                    _p2 := p2
+                    _p3 := p3
+                    _p1Bar := b1
+                    _p2Bar := b2
+                    _p3Bar := b3
+                    _dir := dir
+    [_p1, _p2, _p3, _p1Bar, _p2Bar, _p3Bar, _dir]
+
+// ==================================================================
 // 6.B FUNÇÃO QUE CONFIRMA ROMPIMENTO COM IMPULSO
 // ==================================================================
 hasImpulseBreakout(_dir, _p2) =>
@@ -239,6 +311,14 @@ hasImpulseBreakout(_dir, _p2) =>
     bool breakout = _dir == 1 ? close > _p2 + buffer : close < _p2 - buffer
     bool impulse = realBody > atrValue
     breakout and impulse
+
+// ==================================================================
+// 6.B.1 DETECÇÃO DE CANDLE DE ROMPIMENTO
+// ==================================================================
+isBreakoutCandle() =>
+    float body = math.abs(close - open)
+    float atrNow = ta.atr(14)
+    body > 1.2 * atrNow and close > open
 
 // ==================================================================
 // 6.B FUNÇÃO PARA DEFINIR P1, P2, P3 E O MODO DE FIBONACCI
@@ -253,10 +333,19 @@ determineFib() =>
     int   _p2Bar = na
     int   _p3Bar = na
 
+    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars)
     [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(minSwingBars)
 
     int cnt = array.size(pivotPrices)
-    if not na(sgP1)
+    if not na(sp1)
+        _p1 := sp1
+        _p2 := sp2
+        _p3 := sp3
+        _p1Bar := sp1Bar
+        _p2Bar := sp2Bar
+        _p3Bar := sp3Bar
+        _dir := spDir
+    else if not na(sgP1)
         _p1 := sgP1
         _p2 := sgP2
         _p3 := sgP3
@@ -307,12 +396,13 @@ determineFib() =>
                 _p2Bar := bLast
                 _dir := -1
 
+    float pbPct = na
+    bool breakout = false
+    bool isBreakoutCandle = isBreakoutCandle()
     if not na(_p1) and not na(_p2)
-        float pbPct = na
-        bool breakout = false
         if not na(_p3)
             pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
-            breakout := hasImpulseBreakout(_dir, _p2)
+            breakout := hasImpulseBreakout(_dir, _p2) and isBreakoutCandle
 
         string m = fibModeInput
         if fibModeInput == "Auto"
@@ -327,7 +417,7 @@ determineFib() =>
             m := "Retracement"
         _mode := m
 
-    [_p1, _p2, _p3, _dir, _mode, _p1Bar, _p2Bar, _p3Bar]
+    [_p1, _p2, _p3, _dir, _mode, _p1Bar, _p2Bar, _p3Bar, pbPct, breakout]
 
 // ==================================================================
 // 6.B FUNÇÃO PARA ATUALIZAR LINHA DE FIBONACCI, LABEL E CÍRCULO
@@ -552,7 +642,22 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac) =>
             ok := false
     ok
 
-[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar] = determineFib()
+[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = determineFib()
+
+if showDiagnostics and not na(fibP1)
+    string txtDiag = "Modo: " + fibModeActive + "\n"
+    txtDiag += "P1→P2: " + str.tostring(fibP1) + " → " + str.tostring(fibP2) + "\n"
+    txtDiag += "Pullback %: " + str.tostring(fibPbPct * 100, "#.##") + "%\n"
+    txtDiag += "Breakout: " + (fibBreakout ? "Sim" : "Não")
+    if na(diagLabel)
+        diagLabel := label.new(bar_index, high, txtDiag, style=label.style_label_down, color=color.gray, textcolor=color.white, size=size.small)
+    else
+        label.set_xy(diagLabel, bar_index, high)
+        label.set_text(diagLabel, txtDiag)
+else
+    if not na(diagLabel)
+        label.delete(diagLabel)
+        diagLabel := na
 
 if not na(fibP1) and not na(fibP2)
     float baseRange = math.abs(fibP2 - fibP1)
@@ -658,6 +763,7 @@ if not na(fibP1) and not na(fibP2)
             float weight   = array.get(fibWeights, i)
             float lvlFrac  = array.get(fibLevels, i)
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
+            int   clustCnt = getClusterCount(priceF) + 1
 
             // ==== FILTROS ====
             bool validLevel = isDisplayAllowed(weight, pctW, i, lvlFrac)
@@ -677,11 +783,12 @@ if not na(fibP1) and not na(fibP2)
 
 
             color baseColor = isTop    ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.new(color.blue, 80)
-            int lw = isTop  ? 3 : isHigh ? 2 : 1
+            int lw = (isTop  ? 3 : isHigh ? 2 : 1) + (clustCnt - 1)
+            color baseColorAdj = color.new(baseColor, math.max(0, 80 - 20 * (clustCnt - 1)))
 
             styleLine = (isTop or lvlFrac == 0.0 or lvlFrac == 1.0) ? line.style_solid : line.style_dotted
 
-            updateFibLineAndLabel(i, true, priceF, weight, baseColor, lw, styleLine, trendDir)
+            updateFibLineAndLabel(i, true, priceF, weight, baseColorAdj, lw, styleLine, trendDir)
     else
         hideFibElements()
 
@@ -716,6 +823,7 @@ if not na(fibP1) and not na(fibP2)
 
             // ==== FILTROS ====
             bool validZone = isDisplayAllowed(weight, pctW, i, lvlFrac)
+            int   clustCnt = getClusterCount(priceF) + 1
 
             if not validZone
                 updateFibZone(i, false, lowZone, highZone, color.blue, color.new(color.blue, 98))
@@ -729,9 +837,29 @@ if not na(fibP1) and not na(fibP2)
             color borderColor = isTop ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.blue
             color fillColor   = isTop ? color.new(color.red, 80) : isHigh   ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
 
-            updateFibZone(i, true, lowZone, highZone, borderColor, fillColor)
+            color fillAdj     = color.new(fillColor, math.max(0, 80 - 20 * (clustCnt - 1)))
+
+            updateFibZone(i, true, lowZone, highZone, borderColor, fillAdj)
     else
         hideZones()
+
+    if fibBreakout and not na(fibP3Bar)
+        if na(lastAddedSwingBar) or fibP3Bar != lastAddedSwingBar
+            for i = 0 to levelsCount - 1
+                recordClusterLevel(array.get(fibPrices, i))
+            lastAddedSwingBar := fibP3Bar
+
+    // Cálculo de pontuação do swing
+    int startIdxScore = math.max(0, array.size(fractalPrices) - maxFractalsToCheck)
+    int touchesScore = 0
+    for j = startIdxScore to array.size(fractalPrices) - 1
+        float fPrice = array.get(fractalPrices, j)
+        bool between = fibDir == 1 ? (fPrice >= fibP1 and fPrice <= fibP2) : (fPrice <= fibP1 and fPrice >= fibP2)
+        if between
+            touchesScore += array.get(fractalTouches, j)
+    float rangeScore = math.abs(fibP2 - fibP1)
+    float pbScore = na(fibPbPct) ? 0 : fibPbPct
+    lastSwingScore := rangeScore * pbScore * touchesScore * (biasVal == fibDir ? 1.5 : 1.0)
 
     if not showFibLines
         hideFibElements()
@@ -743,7 +871,7 @@ else
 // ==================================================================
 // 13. TABELA DE STATUS (PARÂMETROS)
 // ==================================================================
-var table tableStatus = table.new(position.top_right, 2, 11, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
+var table tableStatus = table.new(position.top_right, 2, 12, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
 if barstate.isfirst
     // Cabeçalhos
     table.cell(tableStatus, 0, 0, "Parâmetro",            bgcolor=color.new(color.blue, 30), text_color=color.white)
@@ -756,6 +884,7 @@ if barstate.isfirst
     table.cell(tableStatus, 0, 7, "Período Fractal (n)",  text_color=color.white)
     table.cell(tableStatus, 0, 8, "Top N Níveis",         text_color=color.white)
     table.cell(tableStatus, 0, 10, "Modo TopN",           text_color=color.white)
+    table.cell(tableStatus, 0, 11, "Score",               text_color=color.white)
 
     string biasHeading = "Bias MA" + str.tostring(biasShortLen) + "/" + str.tostring(biasLongLen)
     table.cell(tableStatus, 0, 9, biasHeading,            text_color=color.white)
@@ -784,6 +913,7 @@ table.cell(tableStatus, 1, 7, nTxt,     text_color=color.white)
 table.cell(tableStatus, 1, 8, topNTxt,  text_color=topNColor)
 table.cell(tableStatus, 1, 9, biasTxt,  text_color=color.white)
 table.cell(tableStatus, 1, 10, topNMode, text_color=color.white)
+table.cell(tableStatus, 1, 11, str.tostring(lastSwingScore, "#.##"), text_color=color.white)
 
 // ==================================================================
 // 14. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
