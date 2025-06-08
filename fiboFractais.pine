@@ -263,6 +263,8 @@ updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWid
 
         if _weight > lastMaxWeight * 0.50
             int sizeC = math.round(5 * (_weight / lastMaxWeight)) + 1
+            // float off   = calcDist(_priceF) * 0.6
+            // float yOff  = _trendDir == 1 ? _priceF + off : _priceF - off
             label.set_xy(fibCircleLabel, bar_index - 1, _priceF)
             label.set_style(fibCircleLabel, label.style_circle)
             label.set_size(fibCircleLabel, sizeC)
@@ -298,6 +300,22 @@ updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor)
         line.set_extend(zoneLowLine, extend.none)
         line.set_extend(zoneHighLine, extend.none)
         linefill.set_color(zoneFill, color.new(color.blue, 98))
+
+// ==================================================================
+// 6.D FUNÇÕES DE APOIO PARA ESCONDER OBJETOS AO DESATIVAR OS TOGGLES
+// ==================================================================
+hideFibElements() =>
+    for i = 0 to levelsCount - 1
+        updateFibLineAndLabel(i, false, 0, 0, color.gray, 1, line.style_dotted, 0)
+
+hideZones() =>
+    for i = 0 to levelsCount - 1
+        updateFibZone(i, false, 0, 0, color.blue, color.new(color.blue, 98))
+
+clearFractalPoints() =>
+    for i = 0 to array.size(fractalPointLabels) - 1
+        label.delete(array.get(fractalPointLabels, i))
+    array.clear(fractalPointLabels)
 
 // ==================================================================
 // 7. COLETA DE FRACTAIS H1 (pivot high/low)
@@ -339,6 +357,8 @@ if showFractalPoints
         array.push(fractalPointLabels, fractalLowLabel)
         if array.size(fractalPointLabels) > maxFractalsToCheck
             label.delete(array.shift(fractalPointLabels))
+else
+    clearFractalPoints()
 
 // ==================================================================
 // 10. ATUALIZAÇÃO DE ÚLTIMOS SWINGS (HIGH / LOW) + “Replay”
@@ -561,7 +581,8 @@ if not na(fibP1) and not na(fibP2)
             styleLine = (isTop or lvlFrac == 0.0 or lvlFrac == 1.0) ? line.style_solid : line.style_dotted
 
             updateFibLineAndLabel(i, true, priceF, weight, baseColor, lw, styleLine, trendDir)
-
+    else
+        hideFibElements()
     // ==================================================================
     // 12.D) REAPROVEITAMENTO DE PLACEHOLDERS PARA ZONAS DE CONFLUÊNCIA
     // ==================================================================
@@ -591,6 +612,15 @@ if not na(fibP1) and not na(fibP2)
             color fillColor   = isTop ? color.new(color.red, 80) : isHigh   ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
 
             updateFibZone(i, true, lowZone, highZone, borderColor, fillColor)
+    else
+        hideZones()
+
+    if not showFibLines
+        hideFibElements()
+
+else
+    hideFibElements()
+    hideZones()
 
 // ==================================================================
 // 13. TABELA DE STATUS (PARÂMETROS)
