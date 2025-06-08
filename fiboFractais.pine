@@ -1,46 +1,61 @@
 //@version=6
-// build 2025-06-10_2.4.4 (corrigido: variáveis, scope, tipos e placeholders)
+// build 2025-06-10_2.4.4 (corrigido: variáveis, scope, tipos e placeholders, ADAPTAÇÃO AUTOMÁTICA IMPLEMENTADA)
 // SciFib_H1 Stepwise: placeholders fixos, filtros unificados, sem vazamento de objetos.
-indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL", overlay=true, max_lines_count=200, max_labels_count=200)
+// Adaptação: parâmetros ajustam-se automaticamente com base na volatilidade e força do viés.
+indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL ADAPT V4.5", overlay=true, max_lines_count=200, max_labels_count=200)
 
 // ===============================================================================================
-// 1. INPUTS (Parâmetros configuráveis pelo usuário)
+// 1. INPUTS (Parâmetros configuráveis pelo usuário - agora mais enxutos e organizados)
 // ===============================================================================================
-showFractalPoints  = input.bool(true,   "Mostrar Fractais H1")
-showFibLines       = input.bool(true,   "Mostrar Linhas Fibonacci")
-showZones          = input.bool(true,   "Mostrar Zonas de Confluência")
-showFibPivots      = input.bool(false,  "Mostrar Pivôs do Fibonacci")
-showDiagnostics    = input.bool(false,  "Training Mode")
-fibModeInput       = input.string("Auto", "Modo Fibonacci", options=["Auto", "Retracement", "Extension", "Projection"])
+// --- Configurações de Exibição ---
+showFractalPoints    = input.bool(true,   "Mostrar Fractais H1", group="Visualização")
+showFibLines         = input.bool(true,   "Mostrar Linhas Fibonacci", group="Visualização")
+showZones            = input.bool(true,   "Mostrar Zonas de Confluência", group="Visualização")
+showFibPivots        = input.bool(false,  "Mostrar Pivôs do Fibonacci", group="Visualização")
+showDiagnostics      = input.bool(false,  "Training Mode", group="Visualização")
+showBiasBackground   = input.bool(false,  "Mostrar Cor de Fundo do Viés", group="Visualização")
+showDebugLabel       = input.bool(false,  "Mostrar Label de Debug", group="Visualização")
+showCompactStatusTable = input.bool(false, "Mostrar Tabela de Status Compacta", group="Visualização")
 
-atrLength          = input.int(14,      "Comprimento do ATR",                  minval=5)
-atrEmaPeriod       = input.int(10,      "Período EMA do ATR",                  minval=1)
-atrMultiplier      = input.float(1.5,   "Multiplicador do ATR",                step=0.1, minval=0.5, maxval=3)
-meanStdLength      = input.int(50,      "Período Média/Desvio",                minval=1)
-minSignificance    = input.float(1.0,   "Significância Mínima (peso)",         step=0.01, minval=0.0)
+// --- Configurações de Fibonacci e Pivôs ---
+fibModeInput         = input.string("Auto", "Modo Fibonacci", options=["Auto", "Retracement", "Extension", "Projection"], group="Cálculo de Fibonacci")
+atrLength            = input.int(14,      "Comprimento do ATR",                    minval=5, group="Cálculo de Fibonacci")
+atrEmaPeriod         = input.int(10,      "Período EMA do ATR",                    minval=1, group="Cálculo de Fibonacci")
+meanStdLength        = input.int(50,      "Período Média/Desvio",                  minval=1, group="Cálculo de Fibonacci")
+n                    = input.int(5,       "Período do Fractal (n)",                minval=1, maxval=10, group="Cálculo de Fibonacci")
+maxFractalsToCheck   = input.int(50,      "Máx. Fractais a Checar",                minval=1, group="Cálculo de Fibonacci")
 
-n                  = input.int(5,       "Período do Fractal (n)",              minval=1, maxval=10)
-maxFractalsToCheck = input.int(50,      "Máx. Fractais a Checar",              minval=1)
+// --- Configurações de Viés (Bias) ---
+biasShortLen         = input.int(10,      "Período MA Curta (Bias)",               minval=1, group="Viés de Mercado")
+biasLongLen          = input.int(50,      "Período MA Longa (Bias)",               minval=1, group="Viés de Mercado")
 
-topN               = input.int(0,       "Mostrar Top N Níveis (0=OFF)",        minval=0, maxval=10)
-topNMode           = input.string("OFF", "Modo TopN", options=["OFF", "Soft", "Strict"])
+// --- Configurações de Replay ---
+replayMode           = input.bool(false,  "Replay Step by Step (mostrar apenas último swing)", group="Modo de Replay")
+replayCount          = input.int(1,       "Quantos Swings Exibir no Replay",       minval=1, group="Modo de Replay")
 
-biasShortLen       = input.int(10,      "Período MA Curta (Bias)",             minval=1)
-biasLongLen        = input.int(50,      "Período MA Longa (Bias)",             minval=1)
+// --- Inputs para Controle da Adaptação Automática ---
+adaptiveSensitivity     = input.string("Balanced", "Sensibilidade da Adaptação Automática", options=["Conservative", "Balanced", "Aggressive"], group="Configurações de Adaptação Automática")
+// Tooltips atualizados para clareza no formato decimal
+volatilityThresholdHigh = input.float(0.015, "Limiar de Volatilidade Alta (0.00-1.00)", step=0.001, minval=0.001, group="Configurações de Adaptação Automática", tooltip="? (Volatilidade H1 acima deste valor, ex: 0.015 para 1.5%, é considerada 'Alta'. Insira em formato decimal.)")
+volatilityThresholdLow  = input.float(0.005, "Limiar de Volatilidade Baixa (0.00-1.00)", step=0.001, minval=0.001, group="Configurações de Adaptação Automática", tooltip="? (Volatilidade H1 abaixo deste valor, ex: 0.005 para 0.5%, é considerada 'Baixa'. Insira em formato decimal.)")
+biasStrengthThreshold   = input.float(0.005, "Limiar de Força do Viés (0.00-1.00)", step=0.001, minval=0.001, group="Configurações de Adaptação Automática", tooltip="? (Diferença % entre EMAs diárias acima deste valor, ex: 0.005 para 0.5%, indica um viés forte. Insira em formato decimal.)")
 
-autoHideLow        = input.bool(false,  "Auto-Hide Low Weights em TF <= X")
-tfHideThresh       = input.int(60,      "TF Limite para Auto-Hide (minutos)",  minval=1)
-weightMinPct       = input.float(0.50,  "Peso Mínimo (%) para mostrar nível",  minval=0.0, maxval=1.0, step=0.01)
+// NOVOS INPUTS: Multiplicadores para os ajustes adaptativos
+atrVolHighMultiplier       = input.float(1.2, "Mult. ATR (Vol. Alta)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+atrVolLowMultiplier        = input.float(0.8, "Mult. ATR (Vol. Baixa)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+sigVolHighMultiplier       = input.float(0.8, "Mult. Signif. (Vol. Alta)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+sigVolLowMultiplier        = input.float(1.2, "Mult. Signif. (Vol. Baixa)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+swingPctVolHighMultiplier  = input.float(0.8, "Mult. Swing Pct (Vol. Alta)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+swingPctVolLowMultiplier   = input.float(1.2, "Mult. Swing Pct (Vol. Baixa)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+swingBarsVolHighMultiplier = input.float(0.8, "Mult. Swing Barras (Vol. Alta)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+swingBarsVolLowMultiplier  = input.float(1.2, "Mult. Swing Barras (Vol. Baixa)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+tfHideVolHighMultiplier    = input.float(1.2, "Mult. TF Auto-Hide (Vol. Alta)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
+tfHideVolLowMultiplier     = input.float(0.8, "Mult. TF Auto-Hide (Vol. Baixa)", step=0.05, minval=0.5, maxval=2.0, group="Multiplicadores Adaptativos")
 
-replayMode         = input.bool(false,  "Replay Step by Step (mostrar apenas último swing)")
-replayCount        = input.int(1,       "Quantos Swings Exibir no Replay",     minval=1)
-minZScoreAdj       = input.float(0.05,  "Z-score mínimo p/ peso",       step=0.01, minval=0.0)
-minSwingPct        = input.float(1.0,   "Range mínimo P1-P2 (%)",      step=0.1, minval=0.0)
-minSwingBars       = input.int(3,       "Barras mínimas entre P1-P3",  minval=1)
 
 // Constantes para classificação de peso
-HIGH_WEIGHT_FRAC   = 0.75
-MEDIUM_WEIGHT_FRAC = 0.50
+HIGH_WEIGHT_FRAC     = 0.75
+MEDIUM_WEIGHT_FRAC   = 0.50
 
 // ===============================================================================================
 // 2. DADOS H1 CONSOLIDADOS (CLOSE, VOLATILIDADE E PIVOTS)
@@ -63,18 +78,18 @@ var float[] fractalSorted       = array.new_float()   // Preços de fractais ord
 var label[] fractalPointLabels  = array.new_label()   // Armazena labels de fractais
 
 var float[] fibLevels           = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.272, 1.618, 2.0, 2.618)
-levelsCount                     = array.size(fibLevels)              // Total de níveis Fibonacci
-var float[] fibPrices           = array.new_float(levelsCount, 0.0)  // Preços de cada nível
-var float[] fibWeights          = array.new_float(levelsCount, 0.0)  // Pesos (weight) de cada nível
+levelsCount                     = array.size(fibLevels)       // Total de níveis Fibonacci
+var float[] fibPrices           = array.new_float(levelsCount, 0.0)   // Preços de cada nível
+var float[] fibWeights          = array.new_float(levelsCount, 0.0)   // Pesos (weight) de cada nível
 
-var line[]    fibLines          = array.new_line()      // Linhas de Fibonacci (levelsCount)
-var label[]   fibLabels         = array.new_label()     // Labels de “% | Peso” (levelsCount)
-var label[]   circleLabels      = array.new_label()     // Labels-círculo (levelsCount)
-var label[]   fibPivotLabels    = array.new_label()     // Labels P1/P2/P3
+var line[]    fibLines          = array.new_line()        // Linhas de Fibonacci (levelsCount)
+var label[]   fibLabels         = array.new_label()       // Labels de “% | Peso” (levelsCount)
+var label[]   circleLabels      = array.new_label()       // Labels-círculo (levelsCount)
+var label[]   fibPivotLabels    = array.new_label()       // Labels P1/P2/P3
 
-var line[]    zoneLinesLow      = array.new_line()      // Linha inferior de cada zona (levelsCount)
-var line[]    zoneLinesHigh     = array.new_line()      // Linha superior de cada zona (levelsCount)
-var linefill[] zoneFills        = array.new_linefill()  // Linefills para zonas (levelsCount)
+var line[]    zoneLinesLow      = array.new_line()        // Linha inferior de cada zona (levelsCount)
+var line[]    zoneLinesHigh     = array.new_line()        // Linha superior de cada zona (levelsCount)
+var linefill[] zoneFills        = array.new_linefill()    // Linefills para zonas (levelsCount)
 
 var float lastHigh              = na                    // Último pivot high (H1)
 var float lastLow               = na                    // Último pivot low (H1)
@@ -82,7 +97,7 @@ var float lastLow               = na                    // Último pivot low (H1
 // Arrays para sequenciar pivôs e detectar P1→P2→P3
 var float[] pivotPrices         = array.new_float()
 var string[] pivotTypes         = array.new_string()
-var int[]    pivotBars          = array.new_int()
+var int[]     pivotBars         = array.new_int()
 
 // Dados para clusters de Fibonaccis de múltiplos swings
 var float[] clusterPrices       = array.new_float()
@@ -98,14 +113,25 @@ var float lastMaxWeight         = 0.0
 // Variáveis de “replay” de swings
 var int[]   swingBars           = array.new_int()   // Armazena bar_index de cada swing detectado
 var int     swingsCount         = 0                 // Contador de swings detectados
-var table tableWeights          = table.new(position.top_left, 5, levelsCount + 1, bgcolor=color.new(color.black, 65), frame_color=color.rgb(78, 82, 94))  // Tabela auxiliar de "weight"
+var table tableWeights          = table.new(position.top_left, 5, levelsCount + 1, bgcolor=color.new(color.black, 65), frame_color=color.rgb(78, 82, 94))   // Tabela auxiliar de "weight"
 
 var float topVal                = na
 var float bottomVal             = na
 var float rangeVal              = na
 var label debugLbl              = na
 
-
+// --- Variáveis para Parâmetros Adaptáveis (declaradas uma vez com 'var', serão atribuídas na Lógica Principal) ---
+var float atrMultiplier_adaptive      = na
+var float minSignificance_adaptive    = na
+var int   topN_adaptive               = na
+var string topNMode_adaptive          = "OFF" // Default para evitar "undetermined type"
+var bool  autoHideLow_adaptive        = false // Alterado de 'na' para 'false' para resolver o erro
+var float weightMinPct_adaptive       = na
+var float minZScoreAdj_adaptive       = na
+var float minSwingPct_adaptive        = na
+var int   minSwingBars_adaptive       = na
+var bool  applyBiasFilterToLevels_adaptive = false
+var int   tfHideThresh_adaptive       = na // Nova variável adaptável para tfHideThresh
 
 // ===============================================================================================
 // 4. FUNÇÕES AUXILIARES
@@ -114,16 +140,18 @@ var label debugLbl              = na
 // Calcula Z-score (distância ao preço médio H1)
 calcZscore(price) => h1Stdev > 0 ? (price - h1Mean) / h1Stdev : 0.0
 
-// Calcula distância mínima entre fractais (0.5 ATR vs volatilidade%)
+// Calcula distância mínima entre fractais (0.5 ATR vs volatilidade%) - AGORA USA atrMultiplier_adaptive
 calcDist(price) =>
     float distAtr = math.max(atrValue * 0.5, syminfo.mintick)
-    float distVol = math.max(volPct * price * atrMultiplier, syminfo.mintick)
+    // Usa atrMultiplier_adaptive
+    float distVol = math.max(volPct * price * atrMultiplier_adaptive, syminfo.mintick)
     math.max(distAtr, distVol)
 
-// Calcula peso com base na contagem e Z-score
+// Calcula peso com base na contagem e Z-score - AGORA USA minZScoreAdj_adaptive
 calcWeight(price, count) =>
     float z = calcZscore(price)
-    float zAdj = math.max(math.abs(z), minZScoreAdj)
+    // Usa minZScoreAdj_adaptive
+    float zAdj = math.max(math.abs(z), minZScoreAdj_adaptive)
     (count + 1) * math.log(zAdj + 1)
 
 // Funções de busca binária para lista ordenada de fractais
@@ -171,20 +199,26 @@ getClusterCount(price) =>
                 result := array.get(clusterCounts, i)
     result
 
-// Calcula viés diário com MAs curta e longa
+// Calcula viés diário com MAs curta e longa, retornando direção e força
 biasFilter() =>
     float dClose = request.security(syminfo.tickerid, "D", close)
     float ema10  = ta.ema(dClose, biasShortLen)
     float ema50  = ta.ema(dClose, biasLongLen)
-    if na(ema10) or na(ema50)
-        0
-    else
-        float diffPct = math.abs(ema10 - ema50) / dClose
-        diffPct < 0.005 ? 0 : ema10 > ema50 ? 1 : ema10 < ema50 ? -1 : 0
+    float biasDir = 0.0 // 1 = Alta, -1 = Baixa, 0 = Neutro
+    float biasStrength = 0.0 // Força do viés (diferença percentual)
 
-// Cálculo de viés diário
-float biasVal   = biasFilter()
-string biasTxt  = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
+    if not na(ema10) and not na(ema50)
+        biasStrength := math.abs(ema10 - ema50) / dClose
+        if ema10 > ema50
+            biasDir := 1.0
+        else if ema10 < ema50
+            biasDir := -1.0
+    [biasDir, biasStrength] // Retorna direção e força
+
+// Cálculo de viés diário - Variáveis globais para serem usadas
+[biasVal, biasStrength] = biasFilter()
+string biasTxt          = biasVal == 1 ? "Alta" : biasVal == -1 ? "Baixa" : "Neutro"
+
 
 // Adiciona um fractal (evita duplicatas próximas)
 addFractal(price) =>
@@ -211,8 +245,8 @@ addFractal(price) =>
                 break
     0.0 // Retorno de dummy, pois a função modifica arrays globais
 
-// Encontra o swing mais forte pela distância e tempo
-getStrongestSwing(_minBars) =>
+// Encontra o swing mais forte pela distância e tempo - AGORA USA minSwingPct_adaptive e minSwingBars_adaptive
+getStrongestSwing(_minBars) => // _minBars será minSwingBars_adaptive
     float gp1 = na
     float gp2 = na
     float gp3 = na
@@ -239,8 +273,9 @@ getStrongestSwing(_minBars) =>
                 int dir = upSeq ? 1 : -1
                 float rangePct = math.abs(p2 - p1) / p1 * 100
                 int barGap = b3 - b1
-                bool biasOk = biasVal == 0 or dir == biasVal
-                if rangePct >= minSwingPct and barGap >= _minBars and biasOk and rangePct > bestRange
+                bool biasOk = biasVal == 0 or dir == biasVal // Usa biasVal global
+                // Usa minSwingPct_adaptive e minSwingBars_adaptive
+                if rangePct >= minSwingPct_adaptive and barGap >= minSwingBars_adaptive and biasOk and rangePct > bestRange
                     gp1 := p1
                     gp2 := p2
                     gp3 := p3
@@ -251,7 +286,7 @@ getStrongestSwing(_minBars) =>
                     bestRange := rangePct
     [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
 
-// Seleção inteligente de pivôs dominantes
+// Seleção inteligente de pivôs dominantes (usa biasVal global)
 getStrongestPivots(_pivots, _types, _bars) =>
     int cnt = array.size(_pivots)
     float bestScore = -1.0
@@ -319,8 +354,9 @@ determineFib() =>
     int   _p2Bar = na
     int   _p3Bar = na
 
+    // Agora usa minSwingBars_adaptive na chamada
     [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars)
-    [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(minSwingBars)
+    [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(minSwingBars_adaptive)
 
     int cnt = array.size(pivotPrices)
     if not na(sp1)
@@ -405,13 +441,98 @@ determineFib() =>
 
     [_p1, _p2, _p3, _dir, _mode, _p1Bar, _p2Bar, _p3Bar, pbPct, breakout]
 
+// Função para determinar parâmetros adaptáveis com base nas condições de mercado
+determineAdaptiveParameters(_currentVolPct, _currentBiasDir, _currentBiasStrength, _adaptiveSensitivity) =>
+    // Valores base que serão ajustados
+    float _adaptiveAtrMultiplier = na
+    float _adaptiveMinSignificance = na
+    int   _adaptiveTopN = 0 // Na adaptação, geralmente não limitamos a N
+    string _adaptiveTopNMode = "OFF"
+    bool  _adaptiveAutoHideLow = false
+    float _adaptiveWeightMinPct = 0.0
+    float _adaptiveMinZScoreAdj = na
+    float _adaptiveMinSwingPct = na
+    int   _adaptiveMinSwingBars = na
+    bool  _adaptiveApplyBiasFilterToLevels = false // Novo parâmetro controlado aqui
+    int   _adaptiveTfHideThresh = na // Variável para tfHideThresh adaptativo
+
+    // --- Definir valores BASEados na Sensibilidade Global (do input do usuário) ---
+    // Configurações Base para cada modo de sensibilidade
+    if _adaptiveSensitivity == "Conservative"
+        _adaptiveAtrMultiplier       := 1.0   // Zonas mais justas
+        _adaptiveMinSignificance     := 2.0   // Exige mais peso
+        _adaptiveMinZScoreAdj        := 0.10  // Maior Z-score necessário
+        _adaptiveMinSwingPct         := 1.5   // Swings maiores
+        _adaptiveMinSwingBars        := 4
+        _adaptiveAutoHideLow         := true
+        _adaptiveWeightMinPct        := 0.60
+        _adaptiveTfHideThresh        := 30 // Para "Conservative"
+    else if _adaptiveSensitivity == "Aggressive"
+        _adaptiveAtrMultiplier       := 2.0   // Zonas mais amplas
+        _adaptiveMinSignificance     := 0.5   // Permite menor peso
+        _adaptiveMinZScoreAdj        := 0.01  // Menor Z-score aceito
+        _adaptiveMinSwingPct         := 0.5   // Swings menores
+        _adaptiveMinSwingBars        := 2
+        _adaptiveAutoHideLow         := false
+        _adaptiveWeightMinPct        := 0.0
+        _adaptiveTfHideThresh        := 120 // Para "Aggressive" (permite ocultar em TF mais alto)
+    else // "Balanced" (Padrão)
+        _adaptiveAtrMultiplier       := 1.5
+        _adaptiveMinSignificance     := 1.0
+        _adaptiveMinZScoreAdj        := 0.05
+        _adaptiveMinSwingPct         := 1.0
+        _adaptiveMinSwingBars        := 3
+        _adaptiveAutoHideLow         := true
+        _adaptiveWeightMinPct        := 0.50
+        _adaptiveTfHideThresh        := 60 // Para "Balanced"
+
+    // --- Ajustes baseados na Volatilidade do Mercado (H1 VolPct) ---
+    string volClass = "Medium"
+    if _currentVolPct >= volatilityThresholdHigh
+        volClass := "High"
+    else if _currentVolPct <= volatilityThresholdLow
+        volClass := "Low"
+
+    // Aplica multiplicadores de ajuste conforme a classe de volatilidade
+    if volClass == "High"
+        // Em alta volatilidade: Zonas mais amplas, permite swings menores (porque % é menor)
+        _adaptiveAtrMultiplier   := _adaptiveAtrMultiplier * atrVolHighMultiplier // Usa input
+        _adaptiveMinSignificance := _adaptiveMinSignificance * sigVolHighMultiplier // Usa input
+        _adaptiveMinSwingPct     := _adaptiveMinSwingPct * swingPctVolHighMultiplier // Usa input
+        _adaptiveMinSwingBars    := math.max(1, math.round(_adaptiveMinSwingBars * swingBarsVolHighMultiplier)) // Usa input
+        _adaptiveTfHideThresh    := math.round(_adaptiveTfHideThresh * tfHideVolHighMultiplier) // Usa input
+    else if volClass == "Low"
+        // Em baixa volatilidade: Zonas mais justas, exige swings maiores (porque % é maior)
+        _adaptiveAtrMultiplier   := _adaptiveAtrMultiplier * atrVolLowMultiplier // Usa input
+        _adaptiveMinSignificance := _adaptiveMinSignificance * sigVolLowMultiplier // Usa input
+        _adaptiveMinSwingPct     := _adaptiveMinSwingPct * swingPctVolLowMultiplier // Usa input
+        _adaptiveMinSwingBars    := math.round(_adaptiveMinSwingBars * swingBarsVolLowMultiplier) // Usa input
+        _adaptiveTfHideThresh    := math.round(_adaptiveTfHideThresh * tfHideVolLowMultiplier) // Usa input
+
+    // --- Ajustes baseados na Força do Viés/Tendência Diária ---
+    if _currentBiasStrength >= biasStrengthThreshold // Tendência forte
+        _adaptiveApplyBiasFilterToLevels := true // Ativa filtragem de viés (foca em extensão/projeção)
+    else
+        _adaptiveApplyBiasFilterToLevels := false // Desativa filtragem de viés (mostra retrações/extensões)
+
+    // --- Arredondamento Final e Limites ---
+    // Arredondar alguns valores para evitar números flutuantes muito longos e limitar tfHideThresh
+    _adaptiveAtrMultiplier   := math.round(_adaptiveAtrMultiplier * 10) / 10.0 // 1 casa decimal
+    _adaptiveMinSignificance := math.round(_adaptiveMinSignificance * 100) / 100.0 // 2 casas decimais
+    _adaptiveMinSwingPct     := math.round(_adaptiveMinSwingPct * 10) / 10.0 // 1 casa decimal
+    _adaptiveMinSwingBars    := math.round(_adaptiveMinSwingBars)
+    _adaptiveTfHideThresh    := math.max(1, math.min(240, math.round(_adaptiveTfHideThresh))) // Limita entre 1 e 240 minutos
+
+    // Retorna todos os parâmetros adaptados
+    [_adaptiveAtrMultiplier, _adaptiveMinSignificance, _adaptiveTopN, _adaptiveTopNMode, _adaptiveAutoHideLow, _adaptiveWeightMinPct, _adaptiveMinZScoreAdj, _adaptiveMinSwingPct, _adaptiveMinSwingBars, _adaptiveApplyBiasFilterToLevels, _adaptiveTfHideThresh]
+
 // Atualiza linha de Fibonacci, label e círculo
 updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWidth, _styleLine, _trendDir) =>
-    line  fibLine        = array.get(fibLines, _index)
-    label fibPriceLabel  = array.get(fibLabels, _index)
-    label fibCircleLabel = array.get(circleLabels, _index)
+    line  fibLine         = array.get(fibLines, _index)
+    label fibPriceLabel   = array.get(fibLabels, _index)
+    label fibCircleLabel  = array.get(circleLabels, _index)
 
-    line.set_xy1(fibLine, bar_index,     _priceF)
+    line.set_xy1(fibLine, bar_index,      _priceF)
     line.set_xy2(fibLine, bar_index + 1, _priceF)
     label.set_xy(fibPriceLabel, bar_index + 1, _priceF)
 
@@ -421,7 +542,7 @@ updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWid
         line.set_style(fibLine, _styleLine)
         line.set_extend(fibLine, extend.right)
 
-        float pct  = (rangeVal > 0) ? (_trendDir == -1 ? math.round(100 * (topVal - _priceF) / rangeVal, 2) : math.round(100 * (_priceF - bottomVal) / rangeVal, 2)) : na
+        float pct   = (rangeVal > 0) ? (_trendDir == -1 ? math.round(100 * (topVal - _priceF) / rangeVal, 2) : math.round(100 * (_priceF - bottomVal) / rangeVal, 2)) : na
         string txtW = str.tostring(pct, "#.##") + "% | Peso: " + str.tostring(_weight, "#.##")
         label.set_text(fibPriceLabel, txtW)
         label.set_color(fibPriceLabel, color.new(_baseColor, 30))
@@ -442,13 +563,13 @@ updateFibLineAndLabel(_index, _isVisible, _priceF, _weight, _baseColor, _lineWid
 
 // Atualiza zona de confluência de Fibonacci
 updateFibZone(_index, _isVisible, _lowZone, _highZone, _borderColor, _fillColor) =>
-    linefill zoneFill    = array.get(zoneFills, _index)
-    line    zoneLowLine  = array.get(zoneLinesLow, _index)
-    line    zoneHighLine = array.get(zoneLinesHigh, _index)
+    linefill zoneFill     = array.get(zoneFills, _index)
+    line    zoneLowLine   = array.get(zoneLinesLow, _index)
+    line    zoneHighLine  = array.get(zoneLinesHigh, _index)
 
-    line.set_xy1(zoneLowLine, bar_index,     _lowZone)
+    line.set_xy1(zoneLowLine, bar_index,      _lowZone)
     line.set_xy2(zoneLowLine, bar_index + 1, _lowZone)
-    line.set_xy1(zoneHighLine, bar_index,     _highZone)
+    line.set_xy1(zoneHighLine, bar_index,      _highZone)
     line.set_xy2(zoneHighLine, bar_index + 1, _highZone)
 
     if _isVisible
@@ -483,11 +604,41 @@ clearFractalPoints() =>
 // ===============================================================================================
 // 5. LÓGICA PRINCIPAL
 // ===============================================================================================
+
+// --- Chamar a função de adaptação para definir os parâmetros dinâmicos ---
+// Atribuição individual para evitar o erro "already defined" com variáveis var
+[temp_atrMultiplier, temp_minSignificance, temp_topN, temp_topNMode, temp_autoHideLow, temp_weightMinPct, temp_minZScoreAdj, temp_minSwingPct, temp_minSwingBars, temp_applyBiasFilterToLevels, temp_tfHideThresh] =
+     determineAdaptiveParameters(volPct, biasVal, biasStrength, adaptiveSensitivity)
+
+atrMultiplier_adaptive       := temp_atrMultiplier
+minSignificance_adaptive     := temp_minSignificance
+topN_adaptive                := temp_topN
+topNMode_adaptive            := temp_topNMode
+autoHideLow_adaptive         := temp_autoHideLow
+weightMinPct_adaptive        := temp_weightMinPct
+minZScoreAdj_adaptive        := temp_minZScoreAdj
+minSwingPct_adaptive         := temp_minSwingPct
+minSwingBars_adaptive        := temp_minSwingBars
+applyBiasFilterToLevels_adaptive := temp_applyBiasFilterToLevels
+tfHideThresh_adaptive        := temp_tfHideThresh // Atribuição da nova variável adaptativa
+
+
 // Plotagem das EMAs diárias
 float ema10Daily = request.security(syminfo.tickerid, "D", ta.ema(close, biasShortLen), lookahead = barmerge.lookahead_on, gaps = barmerge.gaps_off)
 float ema50Daily = request.security(syminfo.tickerid, "D", ta.ema(close, biasLongLen),  lookahead = barmerge.lookahead_on, gaps = barmerge.gaps_off)
 plot(ema10Daily, title="EMA 10D", color=color.orange)
 plot(ema50Daily, title="EMA 50D", color=color.blue)
+
+// Plotagem da cor de fundo do viés
+color biasBgColor = color.new(color.gray, 100) // Default transparente
+if showBiasBackground
+    if biasVal == 1 // Alta
+        biasBgColor := color.new(color.teal, 95) // Verde claro, quase transparente
+    else if biasVal == -1 // Baixa
+        biasBgColor := color.new(color.red, 95) // Vermelho claro, quase transparente
+    else // Neutro
+        biasBgColor := color.new(color.blue, 97) // Azul muito claro, quase transparente
+bgcolor(biasBgColor)
 
 // Coleta de fractais H1
 float prevHigh = lastHigh[1]
@@ -533,14 +684,14 @@ if not na(pivotHighH1)
         array.push(pivotPrices, pivotHighH1)
         array.push(pivotTypes, "H")
         array.push(pivotBars, bar_index)
-        if array.size(pivotPrices) > 10
+        if array.size(pivotPrices) > 10 // Limita o tamanho do histórico de pivôs
             array.shift(pivotPrices)
             array.shift(pivotTypes)
             array.shift(pivotBars)
     lastHigh := pivotHighH1
-    topVal    := math.max(lastHigh, lastLow)
+    topVal   := math.max(lastHigh, lastLow)
     bottomVal := math.min(lastHigh, lastLow)
-    rangeVal  := topVal - bottomVal
+    rangeVal := topVal - bottomVal
 
 if not na(pivotLowH1)
     if pivotLowH1 != prevLow
@@ -549,16 +700,17 @@ if not na(pivotLowH1)
         array.push(pivotPrices, pivotLowH1)
         array.push(pivotTypes, "L")
         array.push(pivotBars, bar_index)
-        if array.size(pivotPrices) > 10
+        if array.size(pivotPrices) > 10 // Limita o tamanho do histórico de pivôs
             array.shift(pivotPrices)
             array.shift(pivotTypes)
             array.shift(pivotBars)
     lastLow := pivotLowH1
-    topVal    := math.max(lastHigh, lastLow)
+    topVal   := math.max(lastHigh, lastLow)
     bottomVal := math.min(lastHigh, lastLow)
-    rangeVal  := topVal - bottomVal
+    rangeVal := topVal - bottomVal
 
-bool doAutoHide = autoHideLow and timeframe.isminutes and timeframe.multiplier <= tfHideThresh
+// AGORA USA autoHideLow_adaptive e tfHideThresh_adaptive
+bool doAutoHide = autoHideLow_adaptive and timeframe.isminutes and timeframe.multiplier <= tfHideThresh_adaptive
 int replayStartIdx = math.max(0, swingsCount - replayCount)
 
 // Criação única de placeholders (apenas na primeira barra)
@@ -587,20 +739,24 @@ if barstate.isfirst
         array.push(zoneLinesHigh, zoneHighLine)
         array.push(zoneFills, linefill.new(zoneLowLine, zoneHighLine, color.new(color.blue, 98)))
 
-// Função auxiliar para verificar se um nível/zona deve ser exibido
+// Função auxiliar para verificar se um nível/zona deve ser exibido - AGORA USA PARAMETROS ADAPTAVEIS
 isDisplayAllowed(_w, _pctW, _idx, _lvlFrac, _topIndices) =>
     bool ok = true
     if replayMode and array.size(swingBars) > 0
         int swingBarIdx = array.get(swingBars, replayStartIdx)
         if bar_index < swingBarIdx
             ok := false
-    if ok and doAutoHide and _pctW < weightMinPct
+    // Usa autoHideLow_adaptive e tfHideThresh_adaptive e weightMinPct_adaptive
+    if ok and autoHideLow_adaptive and timeframe.isminutes and timeframe.multiplier <= tfHideThresh_adaptive and _pctW < weightMinPct_adaptive
         ok := false
-    if ok and topNMode == "Strict" and topN > 0 and not array.includes(_topIndices, _idx)
+    // Usa topNMode_adaptive e topN_adaptive
+    if ok and topNMode_adaptive == "Strict" and topN_adaptive > 0 and not array.includes(_topIndices, _idx)
         ok := false
-    if ok and topNMode != "Strict" and _w < minSignificance // Use minSignificance here
+    // Usa minSignificance_adaptive
+    if ok and topNMode_adaptive != "Strict" and _w < minSignificance_adaptive
         ok := false
-    if ok
+    // Usa applyBiasFilterToLevels_adaptive para controlar o filtro de viés
+    if ok and applyBiasFilterToLevels_adaptive
         if biasVal == 1 and _lvlFrac <= 1 and _lvlFrac != 1
             ok := false
         if biasVal == -1 and _lvlFrac >= 1 and _lvlFrac != 1
@@ -608,8 +764,8 @@ isDisplayAllowed(_w, _pctW, _idx, _lvlFrac, _topIndices) =>
     ok
 
 // Se houver swing válido, calcula níveis de Fibo, pesos e desenha
-float threshold = minSignificance
-int[] topIndices = array.new_int()
+// threshold = minSignificance_adaptive // Esta linha não é mais necessária aqui, pois threshold não é usado diretamente
+int[] topIndices = array.new_int() // Renomeada de 'topIndices' para 'topIndices_local' para evitar conflito de escopo se necessário, mas está ok aqui.
 
 [fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = determineFib()
 
@@ -619,7 +775,7 @@ if showDiagnostics and not na(fibP1)
     txtDiag += "Pullback %: " + str.tostring(fibPbPct * 100, "#.##") + "%\n"
     txtDiag += "Breakout: " + (fibBreakout ? "Sim" : "Não")
     if na(diagLabel)
-        diagLabel := label.new(bar_index, high, txtDiag, style=label.style_label_down, color=color.gray, textcolor=color.white, size=size.small)
+        diagLabel := label.new(bar_index, high, txtDiag, style=label.style_label_down, color=color.gray, textcolor = color.white, size=size.small)
     else
         label.set_xy(diagLabel, bar_index, high)
         label.set_text(diagLabel, txtDiag)
@@ -671,7 +827,7 @@ if not na(fibP1) and not na(fibP2)
 
     for i = 0 to levelsCount - 1
         float priceF      = array.get(fibPrices, i)
-        float distPctCalc = calcDist(priceF)
+        float distPctCalc = calcDist(priceF) // Usa atrMultiplier_adaptive via calcDist
         int   contagem    = 0
 
         for j = startIdx3 to array.size(fractalPrices) - 1
@@ -679,7 +835,7 @@ if not na(fibP1) and not na(fibP2)
             if math.abs(fractalPrice - priceF) <= distPctCalc
                 contagem += 1
 
-        float weight = calcWeight(priceF, contagem)
+        float weight = calcWeight(priceF, contagem) // Usa minZScoreAdj_adaptive via calcWeight
         array.set(fibWeights, i, weight)
 
         if weight > maxWeight
@@ -687,13 +843,13 @@ if not na(fibP1) and not na(fibP2)
 
     lastMaxWeight := maxWeight
 
-    // Determinar “topIndices” se topN > 0
-    if topN > 0
+    // Determinar “topIndices” se topN_adaptive > 0 - AGORA USA topN_adaptive
+    if topN_adaptive > 0
         float[] tempWeights = array.new_float()
         for k = 0 to levelsCount - 1
             array.push(tempWeights, array.get(fibWeights, k))
 
-        int limit = math.min(topN, levelsCount)
+        int limit = math.min(topN_adaptive, levelsCount)
         for t = 0 to limit - 1
             float bestW = -1.0
             int   idxMax = 0
@@ -704,17 +860,14 @@ if not na(fibP1) and not na(fibP2)
                     bestW := w
                     idxMax := m
 
-            if bestW < minSignificance
+            // Usa minSignificance_adaptive
+            if bestW < minSignificance_adaptive
                 break
 
             array.push(topIndices, idxMax)
             array.set(tempWeights, idxMax, -1.0)
 
-        if array.size(topIndices) > 0
-            int lastIx = array.get(topIndices, array.size(topIndices) - 1)
-            threshold := array.get(fibWeights, lastIx)
-        else
-            threshold := minSignificance
+    // Removida a linha 'threshold := minSignificance' e sua lógica, pois não é mais usada diretamente aqui.
 
     // Reutilização de placeholders para linhas Fibonacci, círculos e labels
     if showFibLines and maxWeight > 0
@@ -722,23 +875,25 @@ if not na(fibP1) and not na(fibP2)
             float priceF   = array.get(fibPrices, i)
             float weight   = array.get(fibWeights, i)
             float lvlFrac  = array.get(fibLevels, i)
+            // Usa weightMinPct_adaptive
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
             int   clustCnt = getClusterCount(priceF) + 1
 
-            // Filtros
+            // Filtros - AGORA USA isDisplayAllowed que internamente usa todos os adaptáveis
             bool validLevel = isDisplayAllowed(weight, pctW, i, lvlFrac, topIndices)
 
             if not validLevel
                 updateFibLineAndLabel(i, false, priceF, weight, color.gray, 1, line.style_dotted, trendDir)
-                if topNMode == "Strict" and topN > 0 and weight >= minSignificance and not array.includes(topIndices, i)
+                // Usa topNMode_adaptive e topN_adaptive e minSignificance_adaptive
+                if topNMode_adaptive == "Strict" and topN_adaptive > 0 and weight >= minSignificance_adaptive and not array.includes(topIndices, i)
                     label fibPriceLabel = array.get(fibLabels, i)
                     label.set_text(fibPriceLabel, "Ignorado por TopN")
                 continue
 
             // Cor e estilo
-            bool isTop    = (weight == lastMaxWeight)
-            bool isHigh   = (weight >= lastMaxWeight * HIGH_WEIGHT_FRAC) and not isTop
-            bool isMedium = (weight >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) and not (isTop or isHigh)
+            bool isTop      = (weight == lastMaxWeight)
+            bool isHigh     = (weight >= lastMaxWeight * HIGH_WEIGHT_FRAC) and not isTop
+            bool isMedium   = (weight >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) and not (isTop or isHigh)
 
             color baseColor = isTop    ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.new(color.blue, 80)
             int lw = (isTop  ? 3 : isHigh ? 2 : 1) + (clustCnt - 1)
@@ -779,13 +934,14 @@ if not na(fibP1) and not na(fibP2)
         for i = 0 to levelsCount - 1
             float priceF   = array.get(fibPrices, i)
             float weight   = array.get(fibWeights, i)
-            float distPct  = calcDist(priceF)
+            float distPct  = calcDist(priceF) // Usa atrMultiplier_adaptive via calcDist
             float lvlFrac  = array.get(fibLevels, i)
             float lowZone  = priceF - distPct
             float highZone = priceF + distPct
+            // Usa weightMinPct_adaptive
             float pctW     = (lastMaxWeight > 0) ? (weight / lastMaxWeight) : 0.0
 
-            // Filtros
+            // Filtros - AGORA USA isDisplayAllowed que internamente usa todos os adaptáveis
             bool validZone = isDisplayAllowed(weight, pctW, i, lvlFrac, topIndices)
             int   clustCnt = getClusterCount(priceF) + 1
 
@@ -794,14 +950,16 @@ if not na(fibP1) and not na(fibP2)
                 continue
 
             // Cor e estilo
-            bool isTop    = (weight == lastMaxWeight)
-            bool isHigh   = (weight >= lastMaxWeight * HIGH_WEIGHT_FRAC) and not isTop
-            bool isMedium = (weight >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) and not (isTop or isHigh)
+            bool isTop      = (weight == lastMaxWeight)
+            bool isHigh     = (weight >= lastMaxWeight * HIGH_WEIGHT_FRAC) and not isTop
+            bool isMedium   = (weight >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) and not (isTop or isHigh)
 
             color borderColor = isTop ? color.red : isHigh   ? color.yellow : isMedium ? color.green : color.blue
             color fillColor   = isTop ? color.new(color.red, 80) : isHigh   ? color.new(color.yellow, 80) : isMedium ? color.new(color.green, 80) : color.new(color.blue, 80)
 
-            color fillAdj     = color.new(fillColor, 80)
+            // Calcula a opacidade baseada em clustCnt para dar mais impacto visual
+            float opacityFactor = math.min(1.0, 0.5 + (clustCnt - 1) * 0.1) // 0.5 base + 0.1 por cluster, max 1.0 (100% opaco)
+            color fillAdj       = color.new(fillColor, math.round(80 * (1 - opacityFactor))) // 80 é a transparência base (20% opaco), (1-opacityFactor) inverte para mais opacidade
 
             updateFibZone(i, true, lowZone, highZone, borderColor, fillAdj)
     else
@@ -833,50 +991,95 @@ else
     hideZones()
 
 // ===============================================================================================
-// 6. TABELA DE STATUS (PARÂMETROS)
+// 6. TABELA DE STATUS (PARÂMETROS ATUAIS ADAPTADOS)
 // ===============================================================================================
-var table tableStatus = table.new(position.top_right, 2, 12, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
+// Ajustada a altura da tabela para um valor fixo maior para tentar evitar truncamento
+// O número de linhas da tabela deve ser sempre o máximo para garantir o espaço na UI
+var table tableStatus = table.new(position.top_right, 2, 25, bgcolor=color.rgb(120, 123, 134, 39), border_color=color.gray, frame_color=color.gray)
+
 if barstate.isfirst
-    // Cabeçalhos
-    table.cell(tableStatus, 0, 0, "Parâmetro",            bgcolor=color.new(color.blue, 30), text_color=color.white)
-    table.cell(tableStatus, 1, 0, "Valor Atual",          bgcolor=color.new(color.blue, 30), text_color=color.white)
-    table.cell(tableStatus, 0, 2, "Período EMA ATR",      text_color=color.white)
-    table.cell(tableStatus, 0, 3, "Multiplicador ATR",    text_color=color.white)
-    table.cell(tableStatus, 0, 4, "Volatilidade H1 (%)",  text_color=color.white)
-    table.cell(tableStatus, 0, 5, "Período Média/Desvio", text_color=color.white)
-    table.cell(tableStatus, 0, 6, "Signif. Mín (peso)",   text_color=color.white)
-    table.cell(tableStatus, 0, 7, "Período Fractal (n)",  text_color=color.white)
-    table.cell(tableStatus, 0, 8, "Top N Níveis",         text_color=color.white)
-    table.cell(tableStatus, 0, 10, "Modo TopN",           text_color=color.white)
-    table.cell(tableStatus, 0, 11, "Score",               text_color=color.white)
+    // Cabeçalhos comuns
+    table.cell(tableStatus, 0, 0, "Parâmetro",          bgcolor=color.new(color.blue, 30), text_color=color.white)
+    table.cell(tableStatus, 1, 0, "Valor Atual",        bgcolor=color.new(color.blue, 30), text_color=color.white)
+    table.cell(tableStatus, 0, 1, "Sens. Adap.",        text_color=color.white)
+    table.cell(tableStatus, 0, 2, "ATR Multiplicador",  text_color=color.white)
+    table.cell(tableStatus, 0, 3, "Signif. Mín (peso)", text_color=color.white)
+    table.cell(tableStatus, 0, 4, "Z-score Mín",        text_color=color.white)
+    table.cell(tableStatus, 0, 5, "Range Swing Mín (%)",text_color=color.white)
+    table.cell(tableStatus, 0, 6, "Barras Swing Mín",   text_color=color.white)
+    table.cell(tableStatus, 0, 7, "Auto-Hide Baixos",   text_color=color.white)
+    table.cell(tableStatus, 0, 8, "TF Limite Auto-Hide",text_color=color.white)
+    table.cell(tableStatus, 0, 9, "Peso Mínimo (%)",    text_color=color.white)
+    table.cell(tableStatus, 0, 10, "Filtrar Viés",      text_color=color.white)
+    table.cell(tableStatus, 0, 11, "Top N Níveis",     text_color=color.white)
+    
+    // Cabeçalhos para o modo COMPLETO (multiplicadores)
+    table.cell(tableStatus, 0, 12, "Mult. ATR (Alta Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 13, "Mult. ATR (Baixa Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 14, "Mult. Signif. (Alta Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 15, "Mult. Signif. (Baixa Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 16, "Mult. Swing Pct (Alta Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 17, "Mult. Swing Pct (Baixa Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 18, "Mult. Swing Barras (Alta Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 19, "Mult. Swing Barras (Baixa Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 20, "Mult. TF Auto-Hide (Alta Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 21, "Mult. TF Auto-Hide (Baixa Vol)", text_color=color.white)
+    table.cell(tableStatus, 0, 22, "Score Swing",      text_color=color.white)
 
-    string biasHeading = "Bias MA" + str.tostring(biasShortLen) + "/" + str.tostring(biasLongLen)
-    table.cell(tableStatus, 0, 9, biasHeading,            text_color=color.white)
 
-string atrTxt   = "ATR(" + str.tostring(atrLength) + ")"
-string atrVal   = str.tostring(atrValue, "#.##")
-string emaTxt   = str.tostring(atrEmaPeriod)
-string multTxt  = str.tostring(atrMultiplier, "#.##")
-string volTxt   = str.tostring(volPct * 100, "#.##") + "%"
-string meanTxt  = str.tostring(meanStdLength)
-string zTxt     = str.tostring(minSignificance, "#.##")
-string nTxt     = str.tostring(n)
-string topNTxt  = str.tostring(topN)
+// Limpa toda a tabela para evitar valores residuais de um modo para outro
+table.clear(tableStatus, 0, 1, 1, 23) 
 
-color topNColor = (topN == 0) ? color.new(color.white, 50) : color.new(color.blue, 0)
+// Preenche as células com valores (ou strings vazias se no modo compacto)
+string atrMultTxt      = str.tostring(atrMultiplier_adaptive, "#.##")
+string minSigTxt       = str.tostring(minSignificance_adaptive, "#.##")
+string minZScoreTxt    = str.tostring(minZScoreAdj_adaptive, "#.##")
+string minSwingPctTxt  = str.tostring(minSwingPct_adaptive, "#.##")
+string minSwingBarsTxt = str.tostring(minSwingBars_adaptive)
+string autoHideTxt     = autoHideLow_adaptive ? "Sim" : "Não"
+string tfHideThreshTxt = str.tostring(tfHideThresh_adaptive)
+string weightMinPctTxt = str.tostring(weightMinPct_adaptive * 100, "#.##") + "%"
+string filterBiasTxt   = applyBiasFilterToLevels_adaptive ? "Sim" : "Não"
+string topNTxt         = str.tostring(topN_adaptive) + (topN_adaptive > 0 ? " (" + topNMode_adaptive + ")" : "")
 
-table.cell(tableStatus, 0, 1, atrTxt,   text_color=color.white)
-table.cell(tableStatus, 1, 1, atrVal,   text_color=color.white)
-table.cell(tableStatus, 1, 2, emaTxt,   text_color=color.white)
-table.cell(tableStatus, 1, 3, multTxt,  text_color=color.white)
-table.cell(tableStatus, 1, 4, volTxt,   text_color=color.white)
-table.cell(tableStatus, 1, 5, meanTxt,  text_color=color.white)
-table.cell(tableStatus, 1, 6, zTxt,     text_color=color.yellow)
-table.cell(tableStatus, 1, 7, nTxt,     text_color=color.white)
-table.cell(tableStatus, 1, 8, topNTxt,  text_color=topNColor)
-table.cell(tableStatus, 1, 9, biasTxt,  text_color=color.white)
-table.cell(tableStatus, 1, 10, topNMode, text_color=color.white)
-table.cell(tableStatus, 1, 11, str.tostring(lastSwingScore, "#.##"), text_color=color.white)
+table.cell(tableStatus, 1, 1, adaptiveSensitivity,                 text_color=color.white)
+table.cell(tableStatus, 1, 2, atrMultTxt,                          text_color=color.white)
+table.cell(tableStatus, 1, 3, minSigTxt,                           text_color=color.yellow)
+table.cell(tableStatus, 1, 4, minZScoreTxt,                        text_color=color.white)
+table.cell(tableStatus, 1, 5, minSwingPctTxt,                      text_color=color.white)
+table.cell(tableStatus, 1, 6, minSwingBarsTxt,                     text_color=color.white)
+table.cell(tableStatus, 1, 7, autoHideTxt,                         text_color=color.white)
+table.cell(tableStatus, 1, 8, tfHideThreshTxt,                     text_color=color.white)
+table.cell(tableStatus, 1, 9, weightMinPctTxt,                     text_color=color.white)
+table.cell(tableStatus, 1, 10, filterBiasTxt,                      text_color=color.white)
+table.cell(tableStatus, 1, 11, topNTxt,                            text_color=color.white)
+
+// Lógica para preencher ou deixar vazias as células dos multiplicadores
+string valAtrVolHigh       = showCompactStatusTable ? "" : str.tostring(atrVolHighMultiplier, "#.##")
+string valAtrVolLow        = showCompactStatusTable ? "" : str.tostring(atrVolLowMultiplier, "#.##")
+string valSigVolHigh       = showCompactStatusTable ? "" : str.tostring(sigVolHighMultiplier, "#.##")
+string valSigVolLow        = showCompactStatusTable ? "" : str.tostring(sigVolLowMultiplier, "#.##")
+string valSwingPctVolHigh  = showCompactStatusTable ? "" : str.tostring(swingPctVolHighMultiplier, "#.##")
+string valSwingPctVolLow   = showCompactStatusTable ? "" : str.tostring(swingPctVolLowMultiplier, "#.##")
+string valSwingBarsVolHigh = showCompactStatusTable ? "" : str.tostring(swingBarsVolHighMultiplier, "#.##")
+string valSwingBarsVolLow  = showCompactStatusTable ? "" : str.tostring(swingBarsVolLowMultiplier, "#.##")
+string valTfHideVolHigh    = showCompactStatusTable ? "" : str.tostring(tfHideVolHighMultiplier, "#.##")
+string valTfHideVolLow     = showCompactStatusTable ? "" : str.tostring(tfHideVolLowMultiplier, "#.##")
+
+table.cell(tableStatus, 1, 12, valAtrVolHigh,                        text_color=color.white)
+table.cell(tableStatus, 1, 13, valAtrVolLow,                         text_color=color.white)
+table.cell(tableStatus, 1, 14, valSigVolHigh,                        text_color=color.white)
+table.cell(tableStatus, 1, 15, valSigVolLow,                         text_color=color.white)
+table.cell(tableStatus, 1, 16, valSwingPctVolHigh,                   text_color=color.white)
+table.cell(tableStatus, 1, 17, valSwingPctVolLow,                    text_color=color.white)
+table.cell(tableStatus, 1, 18, valSwingBarsVolHigh,                  text_color=color.white)
+table.cell(tableStatus, 1, 19, valSwingBarsVolLow,                   text_color=color.white)
+table.cell(tableStatus, 1, 20, valTfHideVolHigh,                     text_color=color.white)
+table.cell(tableStatus, 1, 21, valTfHideVolLow,                      text_color=color.white)
+
+// Score Swing é sempre exibido, seja no modo completo ou compacto
+table.cell(tableStatus, 1, 22, str.tostring(lastSwingScore, "#.##"), text_color=color.white)
+
 
 // ===============================================================================================
 // 7. TABELA AUXILIAR DE “PROVA DE WEIGHT” (Top N / Z-score / Incluído?)
@@ -884,19 +1087,20 @@ table.cell(tableStatus, 1, 11, str.tostring(lastSwingScore, "#.##"), text_color=
 // tableWeights é declarado no bloco de variáveis persistentes
 if barstate.isfirst
     // Cabeçalhos
-    table.cell(tableWeights, 0, 0, "Nível (%)",  text_color=color.white, bgcolor=color.new(color.blue, 30))
-    table.cell(tableWeights, 1, 0, "# Fractais", text_color=color.white, bgcolor=color.new(color.blue, 30))
-    table.cell(tableWeights, 2, 0, "Z-score",    text_color=color.white, bgcolor=color.new(color.blue, 30))
-    table.cell(tableWeights, 3, 0, "Peso",       text_color=color.white, bgcolor=color.new(color.blue, 30))
-    table.cell(tableWeights, 4, 0, "Incluído?",  text_color=color.white, bgcolor=color.new(color.blue, 30))
-    // Atualiza valores a cada barra para evitar exibir apenas configurações vazias
+    table.cell(tableWeights, 0, 0, "Nível (%)",    text_color=color.white, bgcolor=color.new(color.blue, 30))
+    table.cell(tableWeights, 1, 0, "# Fractais",   text_color=color.white, bgcolor=color.new(color.blue, 30))
+    table.cell(tableWeights, 2, 0, "Z-score Abs",  text_color=color.white, bgcolor=color.new(color.blue, 30))
+    table.cell(tableWeights, 3, 0, "Peso",         text_color=color.white, bgcolor=color.new(color.blue, 30))
+    table.cell(tableWeights, 4, 0, "Incluído?",    text_color=color.white, bgcolor=color.new(color.blue, 30))
+    
+// Atualiza valores a cada barra para evitar exibir apenas configurações vazias
 if lastMaxWeight > 0
-    table.clear(tableWeights, 1, 1, 4, levelsCount)  // limpa células de dados
+    table.clear(tableWeights, 0, 1, 4, levelsCount)   // Limpa células de dados (começando da coluna 0)
     for i = 0 to levelsCount - 1
-        float lvlFrac  = array.get(fibLevels, i)
-        float priceF   = array.get(fibPrices, i)
-        float distPct  = calcDist(priceF)
-        int cont       = 0
+        float lvlFrac    = array.get(fibLevels, i)
+        float priceF     = array.get(fibPrices, i)
+        float distPct    = calcDist(priceF) // Usa atrMultiplier_adaptive via calcDist
+        int cont         = 0
 
         // Recalcula contagem para tabela
         for j = math.max(0, array.size(fractalPrices) - maxFractalsToCheck) to array.size(fractalPrices) - 1
@@ -908,7 +1112,7 @@ if lastMaxWeight > 0
         float pctWeightTbl = lastMaxWeight > 0 ? (wt / lastMaxWeight) : 0.0
 
         // Verifica se está incluído (mesmos filtros de exibição)
-        bool isIncluded = isDisplayAllowed(wt, pctWeightTbl, i, lvlFrac, topIndices)
+        bool isIncluded = isDisplayAllowed(wt, pctWeightTbl, i, lvlFrac, topIndices) // Passa topIndices localmente
 
         string nivelTxt = str.tostring(lvlFrac * 100, "#.##") + "%"
         string inclTxt  = isIncluded ? "Sim" : "Não"
@@ -918,7 +1122,7 @@ if lastMaxWeight > 0
         table.cell(tableWeights, 1, i + 1, str.tostring(cont), text_color=color.white)
         table.cell(tableWeights, 2, i + 1, str.tostring(math.abs(zVal), "#.##"), text_color=color.white)
 
-        color cellBg = (wt == lastMaxWeight) ? color.new(color.red, 50) : (wt >= lastMaxWeight * 0.75) ? color.new(color.yellow, 50) : (wt >= lastMaxWeight * 0.50) ? color.new(color.green, 50) : color.new(color.blue, 80)
+        color cellBg = (wt == lastMaxWeight) ? color.new(color.red, 50) : (wt >= lastMaxWeight * HIGH_WEIGHT_FRAC) ? color.new(color.yellow, 50) : (wt >= lastMaxWeight * MEDIUM_WEIGHT_FRAC) ? color.new(color.green, 50) : color.new(color.blue, 80)
 
         table.cell(tableWeights, 3, i + 1, str.tostring(wt, "#.##"), text_color=color.white, bgcolor=cellBg)
         table.cell(tableWeights, 4, i + 1, inclTxt, text_color=color.white)
@@ -930,16 +1134,21 @@ alertcondition(na(fibP1) or na(fibP2), title="Fibonacci inválido", message="Ní
 alertcondition(lastMaxWeight == 0, title="Peso zero", message="Pesos zerados - volatilidade baixa")
 
 // Label de debug auxiliar (apenas para diagnóstico)
-if na(debugLbl)
-    debugLbl := label.new(x = bar_index, y = close, text = "", xloc = xloc.bar_index, yloc = yloc.price, color = color.new(color.red, 100))
-string msg = ""
-if na(fibP1) or na(fibP2)
-    msg += "Fibo"
-if lastMaxWeight == 0
-    msg += " Peso=0"
-label.set_xy(debugLbl, bar_index, close)
-label.set_text(debugLbl, msg)
-label.set_color(debugLbl, color.new(color.red, msg == "" ? 100 : 0))
+if showDebugLabel // Só cria/atualiza se o input estiver ativo
+    if na(debugLbl)
+        debugLbl := label.new(x = bar_index, y = close, text = "", xloc = xloc.bar_index, yloc = yloc.price, color = color.new(color.red, 100))
+    string msg = ""
+    if na(fibP1) or na(fibP2)
+        msg += "Fibo Inválido"
+    if lastMaxWeight == 0
+        msg += " Peso=0"
+    label.set_xy(debugLbl, bar_index, close)
+    label.set_text(debugLbl, msg)
+    label.set_color(debugLbl, color.new(color.red, msg == "" ? 100 : 0))
+else
+    if not na(debugLbl) // Se o input for falso, deleta a label se ela existir
+        label.delete(debugLbl)
+        debugLbl := na
 
 // ===============================================================================================
 // FIM DO CÓDIGO REFATORADO
