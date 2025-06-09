@@ -40,7 +40,7 @@ export getStrongestSwing(float[] pivotPrices, string[] pivotTypes, int[] pivotBa
                     bestRange := rangePct
     [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
 
-export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float biasVal, float[] _fractalPrices) =>
+export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float biasVal,float atrLength, float[] _fractalPrices) =>
     int cnt = array.size(_pivots)
     float bestScore = -1.0
     float _p1 = na
@@ -50,6 +50,10 @@ export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float b
     int _p2Bar = na
     int _p3Bar = na
     int _dir = 0
+    // --- Início da Lógica de Duração Ótima ---
+    float optimalDurationMin = atrLength * 1.0
+    float optimalDurationMax = atrLength * 3.0
+    // --- Fim da Lógica de Duração Ótima ---
 
     if cnt >= 3 and array.size(_types) >= 3 and array.size(_bars) >= 3
         for i = 0 to cnt - 3
@@ -72,13 +76,10 @@ export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float b
 
                 // 1. Fator de Amplitude (Range)
                 float rangeP1P2 = math.abs(p2 - p1)
-
-                // 2. Fator de Duração
-                int duration = b3 - b1
-
                 // 3. Fator de Qualidade do Pullback (NOVA LÓGICA)
                 float pbRatio = rangeP1P2 > 0 ? math.abs(p2 - p3) / rangeP1P2 : 0.0
                 float pbQualityScore = 0.0
+
                 if pbRatio >= 0.382 and pbRatio <= 0.618
                     pbQualityScore := 1.0 // Zona ótima, pontuação máxima
                 else if pbRatio > 0.618 and pbRatio <= 0.786
@@ -100,14 +101,21 @@ export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float b
                 // Usamos (confluenceCount + 1) para evitar multiplicar por zero e dar um peso base.
                 float confluenceScore = confluenceCount + 1
 
+                // NOVO: Fator de Qualidade da Duração
+                int duration = b3 - b1
+                float durationQualityScore = 0.0
+                if duration >= optimalDurationMin and duration <= optimalDurationMax
+                    durationQualityScore := 1.0 // Duração ótima
+                else if duration > optimalDurationMax
+                    durationQualityScore := 0.5 // Longo demais, menos momentum
+                else // duration < optimalDurationMin
+                    durationQualityScore := 0.3 // Curto demais, pode ser ruído
+
                 // 5. Fator de Viés
                 float biasFactor = (biasVal == dir ? 1.5 : 1.0)
 
-                // 6. Cálculo do Score Final
-                // Adicionamos o novo confluenceScore à fórmula
-                float score = rangeP1P2 * pbQualityScore * duration * confluenceScore * biasFactor
-
-                // --- FIM DA LÓGICA DE SCORE MELHORADA ---
+                // Cálculo do Score Final ATUALIZADO
+                float score = rangeP1P2 * pbQualityScore * durationQualityScore * confluenceScore * biasFactor
 
                 if score > bestScore
                     bestScore := score
@@ -134,7 +142,7 @@ export isBreakoutCandle() =>
     body > 1.2 * atrNow and close > open
 
 //export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float atrValue, float[] fractalPrices, int[] fractalTouches) =>
-export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float[] fractalPrices) =>
+export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float atrLength, float[] fractalPrices) =>
     float _p1 = na
     float _p2 = na
     float _p3 = na
@@ -143,7 +151,7 @@ export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, f
     int   _p1Bar = na
     int   _p2Bar = na
     int   _p3Bar = na
-    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars, biasVal, fractalPrices)
+    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars, biasVal, atrLength, fractalPrices)
     [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(pivotPrices, pivotTypes, pivotBars, minSwingPct, minSwingBars, biasVal)
     int cnt = array.size(pivotPrices)
     if not na(sp1)
@@ -207,7 +215,7 @@ export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, f
     //bool brkCndl = isBreakoutCandle()
     if not na(_p1) and not na(_p2)
         if not na(_p3)
-            pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
+            pbPct := _dir == 1 and (_p2 - _p1) != 0 ? (_p2 - _p3) / (_p2 - _p1) : _dir == -1 and (_p1 - _p2) != 0 ? (_p3 - _p2) / (_p1 - _p2) : na
             //breakout := hasImpulseBreakout(_dir, _p2, atrValue) and brkCndl
         string m = fibModeInput
         if fibModeInput == 'Auto'
