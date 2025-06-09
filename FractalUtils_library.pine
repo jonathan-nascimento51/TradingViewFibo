@@ -1,0 +1,55 @@
+//@version=6
+library('FractalUtils', overlay=false)
+
+// Exemplo com argumentos tipados:
+export binarySearchNear(float[] _arr, float _val) =>
+    int lo = 0
+    int hi = array.size(_arr) - 1
+    while lo <= hi
+        int mid = math.floor((lo + hi) / 2)
+        if array.get(_arr, mid) < _val
+            lo := mid + 1
+        else
+            hi := mid - 1
+    lo
+
+export binarySearchExact(float[] _arr, float _val, float _gap) =>
+    int idx = binarySearchNear(_arr, _val)
+    if idx < array.size(_arr) and math.abs(array.get(_arr, idx) - _val) < _gap
+        idx
+    else if idx > 0 and math.abs(array.get(_arr, idx - 1) - _val) < _gap
+        idx - 1
+    else
+        -1
+
+export calcDist(float _price, float atrValue, float volPct, float atrMultiplier, float mintick) =>
+    float distAtr = math.max(atrValue * 0.5, mintick)
+    float distVol = math.max(volPct * _price * atrMultiplier, mintick)
+    math.max(distAtr, distVol)
+
+export addFractal(int[] fractalTouches, float[] fractalPrices, float[] fractalSorted,float _price,int maxFractalsToCheck,float atrValue,float volPct,float atrMultiplier,float mintick) =>
+    float gapMin  = calcDist(_price, atrValue, volPct, atrMultiplier, mintick)
+    int dupIdx    = binarySearchExact(fractalSorted, _price, gapMin)
+
+    if dupIdx == -1
+        int insIdx = binarySearchNear(fractalSorted, _price)
+        array.insert(fractalSorted, insIdx, _price)
+        array.push(fractalPrices, _price)
+        array.push(fractalTouches, 0)
+        if array.size(fractalPrices) > maxFractalsToCheck
+            float rm = array.shift(fractalPrices)
+            array.shift(fractalTouches)
+            int rmIdx = binarySearchExact(fractalSorted, rm, mintick)
+            if rmIdx != -1
+                array.remove(fractalSorted, rmIdx)
+    else
+        for i = 0 to array.size(fractalPrices) - 1
+            if math.abs(array.get(fractalPrices, i) - _price) <= gapMin
+                array.set(fractalTouches, i, array.get(fractalTouches, i) + 1)
+                break
+    0.0
+
+export clearFractalPoints(label[] fractalPointLabels) =>
+    for i = 0 to array.size(fractalPointLabels) - 1
+        label.delete(array.get(fractalPointLabels, i))
+    array.clear(fractalPointLabels)
