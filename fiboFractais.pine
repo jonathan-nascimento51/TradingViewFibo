@@ -1,10 +1,9 @@
 //@version=6
-// build 2025-06-10_2.4.4 (corrigido: variáveis, scope, tipos e placeholders)
-// SciFib_H1 Stepwise: placeholders fixos, filtros unificados, sem vazamento de objetos.
 indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL", overlay=true, max_lines_count=200, max_labels_count=200)
+
 import joostraders/FractalUtils/1 as fractals
 import joostraders/FiboMath/1 as fibomath
-import joostraders/SwingDetection/1 as swing
+import joostraders/SwingDetection/3 as swing
 import joostraders/DrawingHelpers/1 as draw
 import joostraders/BiasUtils/1 as bias
 
@@ -266,7 +265,7 @@ if barstate.isfirst
 float threshold = minSignificance
 int[] topIndices = array.new_int()
 
-[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = swing.determineFib(pivotPrices, pivotTypes, pivotBars, biasVal, fibModeInput, minSwingBars, minSwingPct, atrValue)
+[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = swing.determineFib(pivotPrices, pivotTypes, pivotBars, biasVal, fibModeInput, minSwingBars, minSwingPct, fractalPrices)
 
 if showDiagnostics and not na(fibP1)
     string txtDiag = "Modo: " + fibModeActive + "\n"
