@@ -1,0 +1,62 @@
+//@version=6
+library('DrawingHelpers', overlay=false)
+
+export updateFibLineAndLabel(float bottomVal, float topVal, float rangeVal, line[] fibLines, label[] fibLabels, label[] circleLabels, int _index, bool _isVisible, float _priceF, float _weight, color _baseColor, int _lineWidth, string _styleLine, int _trendDir) =>
+    line  fibLine       = array.get(fibLines, _index)
+    label fibPriceLabel = array.get(fibLabels, _index)
+    label fibCircleLabel = array.get(circleLabels, _index)
+    line.set_xy1(fibLine, bar_index, _priceF)
+    line.set_xy2(fibLine, bar_index + 1, _priceF)
+    label.set_xy(fibPriceLabel, bar_index + 1, _priceF)
+    if _isVisible
+        line.set_color(fibLine, _baseColor)
+        line.set_width(fibLine, _lineWidth)
+        line.set_style(fibLine, _styleLine)
+        line.set_extend(fibLine, extend.right)
+        float pct = na
+        pct := (na(rangeVal) or rangeVal <= 0) ? na : (_trendDir == -1 ? math.round(100 * (topVal - _priceF) / rangeVal, 2) : math.round(100 * (_priceF - bottomVal) / rangeVal, 2))
+        string txtW = str.tostring(pct, "#.##") + "% | Peso: " + str.tostring(_weight, "#.##")
+        label.set_text(fibPriceLabel, txtW)
+        label.set_color(fibPriceLabel, color.new(_baseColor, 30))
+        if _weight > 0
+            int sizeC = math.round(5 * (_weight / _weight)) + 1
+            label.set_xy(fibCircleLabel, bar_index - 1, _priceF)
+            label.set_style(fibCircleLabel, label.style_circle)
+            label.set_size(fibCircleLabel, sizeC)
+            label.set_color(fibCircleLabel, color.new(_baseColor, 70))
+        else
+            label.set_color(fibCircleLabel, color.new(color.gray, 100))
+    else
+        line.set_extend(fibLine, extend.none)
+        label.set_text(fibPriceLabel, "")
+        label.set_color(fibPriceLabel, color.new(color.gray, 100))
+        label.set_color(fibCircleLabel, color.new(color.gray, 100))
+
+export updateFibZone(linefill[] zoneFills, line[] zoneLinesLow, line[] zoneLinesHigh, int _index, bool _isVisible, float _lowZone, float _highZone, color _borderColor, color _fillColor) =>
+    linefill zoneFill = array.get(zoneFills, _index)
+    line    zoneLowLine = array.get(zoneLinesLow, _index)
+    line    zoneHighLine = array.get(zoneLinesHigh, _index)
+    line.set_xy1(zoneLowLine, bar_index, _lowZone)
+    line.set_xy2(zoneLowLine, bar_index + 1, _lowZone)
+    line.set_xy1(zoneHighLine, bar_index, _highZone)
+    line.set_xy2(zoneHighLine, bar_index + 1, _highZone)
+    if _isVisible
+        line.set_color(zoneLowLine, color.new(_borderColor, 60))
+        line.set_color(zoneHighLine, color.new(_borderColor, 60))
+        line.set_extend(zoneLowLine, extend.right)
+        line.set_extend(zoneHighLine, extend.right)
+        linefill.set_color(zoneFill, _fillColor)
+    else
+        line.set_extend(zoneLowLine, extend.none)
+        line.set_extend(zoneHighLine, extend.none)
+        linefill.set_color(zoneFill, color.new(color.blue, 98))
+
+export hideFibElements(float bottomVal, float topVal, float rangeVal, line[] fibLines, label[] fibLabels, label[] circleLabels, label[] fibPivotLabels) =>
+    for i = 0 to array.size(fibLines) - 1
+        updateFibLineAndLabel(bottomVal, topVal, rangeVal, fibLines, fibLabels, circleLabels, i, false, 0, 0, color.gray, 1, line.style_dotted, 0)
+    for idx = 0 to array.size(fibPivotLabels) - 1
+        label.set_text(array.get(fibPivotLabels, idx), "")
+
+export hideZones(linefill[] zoneFills, line[] zoneLinesLow, line[] zoneLinesHigh) =>
+    for i = 0 to array.size(zoneFills) - 1
+        updateFibZone(zoneFills, zoneLinesLow, zoneLinesHigh, i, false, 0, 0, color.blue, color.new(color.blue, 98))
