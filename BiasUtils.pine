@@ -1,0 +1,11 @@
+//@version=6
+library('BiasUtils', overlay=false)
+
+export biasFilter(float dClose, int shortLen, int longLen) =>
+    float ema10 = ta.ema(dClose, shortLen)
+    float ema50 = ta.ema(dClose, longLen)
+    if na(ema10) or na(ema50)
+        0
+    else
+        float diffPct = math.abs(ema10 - ema50) / dClose
+        diffPct < 0.005 ? 0 : ema10 > ema50 ? 1 : ema10 < ema50 ? -1 : 0
