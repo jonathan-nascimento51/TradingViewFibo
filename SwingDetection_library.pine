@@ -1,0 +1,184 @@
+//@version=6
+library('SwingDetection', overlay=false)
+
+export getStrongestSwing(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float minSwingPct, int minBars, float biasVal) =>
+    float gp1 = na
+    float gp2 = na
+    float gp3 = na
+    int   gb1 = na
+    int   gb2 = na
+    int   gb3 = na
+    int   gdir = 0
+    float bestRange = 0.0
+    int cnt = array.size(pivotPrices)
+    if cnt >= 3
+        for i = 2 to cnt - 1
+            string t1 = array.get(pivotTypes, i - 2)
+            string t2 = array.get(pivotTypes, i - 1)
+            string t3 = array.get(pivotTypes, i)
+            float p1 = array.get(pivotPrices, i - 2)
+            float p2 = array.get(pivotPrices, i - 1)
+            float p3 = array.get(pivotPrices, i)
+            int   b1 = array.get(pivotBars, i - 2)
+            int   b2 = array.get(pivotBars, i - 1)
+            int   b3 = array.get(pivotBars, i)
+            bool upSeq = t1 == 'L' and t2 == 'H' and t3 == 'L'
+            bool dnSeq = t1 == 'H' and t2 == 'L' and t3 == 'H'
+            if upSeq or dnSeq
+                int dir = upSeq ? 1 : -1
+                float rangePct = math.abs(p2 - p1) / p1 * 100
+                int barGap = b3 - b1
+                bool biasOk = biasVal == 0 or dir == biasVal
+                if rangePct >= minSwingPct and barGap >= minBars and biasOk and rangePct > bestRange
+                    gp1 := p1
+                    gp2 := p2
+                    gp3 := p3
+                    gb1 := b1
+                    gb2 := b2
+                    gb3 := b3
+                    gdir := dir
+                    bestRange := rangePct
+    [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
+
+export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float biasVal) =>
+    int cnt = array.size(_pivots)
+    float bestScore = -1.0
+    float _p1 = na
+    float _p2 = na
+    float _p3 = na
+    int _p1Bar = na
+    int _p2Bar = na
+    int _p3Bar = na
+    int _dir = 0
+    if cnt >= 3 and array.size(_types) >= 3 and array.size(_bars) >= 3
+        for i = 0 to cnt - 3
+            string t1 = array.get(_types, i)
+            string t2 = array.get(_types, i + 1)
+            string t3 = array.get(_types, i + 2)
+            float p1 = array.get(_pivots, i)
+            float p2 = array.get(_pivots, i + 1)
+            float p3 = array.get(_pivots, i + 2)
+            int b1 = array.get(_bars, i)
+            int b2 = array.get(_bars, i + 1)
+            int b3 = array.get(_bars, i + 2)
+            int dur1 = b2 - b1
+            int dur2 = b3 - b2
+            float ranges = math.abs(p2 - p1)
+            float pb = math.abs(p2 - p3)
+            float pbRatio = ranges > 0 ? pb / ranges : 0.0
+            bool isUp = (t1 == 'L' and t2 == 'H' and t3 == 'L')
+            bool isDn = (t1 == 'H' and t2 == 'L' and t3 == 'H')
+            int dir = isUp ? 1 : isDn ? -1 : 0
+            if dir != 0
+                float score = ranges * pbRatio * (dur1 + dur2) * (biasVal == dir ? 1.5 : 1.0)
+                if score > bestScore
+                    bestScore := score
+                    _p1 := p1
+                    _p2 := p2
+                    _p3 := p3
+                    _p1Bar := b1
+                    _p2Bar := b2
+                    _p3Bar := b3
+                    _dir := dir
+    [_p1, _p2, _p3, _p1Bar, _p2Bar, _p3Bar, _dir]
+
+export hasImpulseBreakout(int _dir, float _p2, float atrValue) =>
+    float realBody = math.abs(close - open)
+    float buffer = atrValue * 0.1
+    bool breakout = _dir == 1 ? close > _p2 + buffer : close < _p2 - buffer
+    bool impulse = realBody > atrValue
+    breakout and impulse
+
+export isBreakoutCandle() =>
+    float body = math.abs(close - open)
+    float atrNow = ta.atr(14)
+    body > 1.2 * atrNow and close > open
+
+export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float atrValue) =>
+    float _p1 = na
+    float _p2 = na
+    float _p3 = na
+    int   _dir = 0
+    string _mode = 'Retracement'
+    int   _p1Bar = na
+    int   _p2Bar = na
+    int   _p3Bar = na
+    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars, biasVal)
+    [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(pivotPrices, pivotTypes, pivotBars, minSwingPct, minSwingBars, biasVal)
+    int cnt = array.size(pivotPrices)
+    if not na(sp1)
+        _p1 := sp1
+        _p2 := sp2
+        _p3 := sp3
+        _p1Bar := sp1Bar
+        _p2Bar := sp2Bar
+        _p3Bar := sp3Bar
+        _dir := spDir
+    else if not na(sgP1)
+        _p1 := sgP1
+        _p2 := sgP2
+        _p3 := sgP3
+        _p1Bar := sgB1
+        _p2Bar := sgB2
+        _p3Bar := sgB3
+        _dir := sgDir
+    else if cnt >= 2
+        string tLast = array.get(pivotTypes, cnt - 1)
+        string tPrev = array.get(pivotTypes, cnt - 2)
+        float pLast = array.get(pivotPrices, cnt - 1)
+        float pPrev = array.get(pivotPrices, cnt - 2)
+        int   bLast = array.get(pivotBars,   cnt - 1)
+        int   bPrev = array.get(pivotBars,   cnt - 2)
+        if cnt >= 3
+            string tThird = array.get(pivotTypes, cnt - 3)
+            float pThird = array.get(pivotPrices, cnt - 3)
+            int   bThird = array.get(pivotBars,   cnt - 3)
+            if tThird == 'L' and tPrev == 'H' and tLast == 'L'
+                _p1 := pThird
+                _p2 := pPrev
+                _p3 := pLast
+                _p1Bar := bThird
+                _p2Bar := bPrev
+                _p3Bar := bLast
+                _dir := 1
+            else if tThird == 'H' and tPrev == 'L' and tLast == 'H'
+                _p1 := pThird
+                _p2 := pPrev
+                _p3 := pLast
+                _p1Bar := bThird
+                _p2Bar := bPrev
+                _p3Bar := bLast
+                _dir := -1
+        if _dir == 0
+            if tPrev == 'L' and tLast == 'H'
+                _p1 := pPrev
+                _p2 := pLast
+                _p1Bar := bPrev
+                _p2Bar := bLast
+                _dir := 1
+            else if tPrev == 'H' and tLast == 'L'
+                _p1 := pPrev
+                _p2 := pLast
+                _p1Bar := bPrev
+                _p2Bar := bLast
+                _dir := -1
+    float pbPct = na
+    bool breakout = false
+    bool brkCndl = isBreakoutCandle()
+    if not na(_p1) and not na(_p2)
+        if not na(_p3)
+            pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
+            breakout := hasImpulseBreakout(_dir, _p2, atrValue) and brkCndl
+        string m = fibModeInput
+        if fibModeInput == 'Auto'
+            if breakout
+                if not na(pbPct) and pbPct > 0.618
+                    m := 'Projection'
+                else
+                    m := 'Extension'
+            else
+                m := 'Retracement'
+        if biasVal != 0 and _dir != biasVal
+            m := 'Retracement'
+        _mode := m
+    [_p1, _p2, _p3, _dir, _mode, _p1Bar, _p2Bar, _p3Bar, pbPct, breakout]
