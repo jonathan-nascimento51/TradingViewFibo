@@ -1,0 +1,53 @@
+//@version=6
+library('FiboMath', overlay=false)
+import joostraders/FractalUtils/1 as fractals
+
+export calcZscore(float _price, float mean, float stdev) =>
+    stdev > 0 ? (_price - mean) / stdev : 0.0
+
+export calcWeight(float _price, int _count, float mean, float stdev, float minZScoreAdj) =>
+    float z = calcZscore(_price, mean, stdev)
+    float zAdj = math.max(math.abs(z), minZScoreAdj)
+    (_count + 1) * math.log(zAdj + 1)
+
+export recordClusterLevel(int[] clusterCounts,float[] clusterPrices, float _price, float atrValue, float volPct, float atrMultiplier, float mintick) =>
+    float dist = fractals.calcDist(_price, atrValue, volPct, atrMultiplier, mintick)
+    int cSize = array.size(clusterPrices)
+    bool matched = false
+    if cSize > 0
+        for i = 0 to cSize - 1
+            if math.abs(array.get(clusterPrices, i) - _price) <= dist
+                array.set(clusterCounts, i, array.get(clusterCounts, i) + 1)
+                matched := true
+    if not matched
+        array.push(clusterPrices, _price)
+        array.push(clusterCounts, 1)
+
+export getClusterCount(int[] clusterCounts,float[] clusterPrices, float _price, float atrValue, float volPct, float atrMultiplier, float mintick) =>
+    float dist = fractals.calcDist(_price, atrValue, volPct, atrMultiplier, mintick)
+    int cSize = array.size(clusterPrices)
+    int result = 0
+    if cSize > 0
+        for i = 0 to cSize - 1
+            if math.abs(array.get(clusterPrices, i) - _price) <= dist
+                result := array.get(clusterCounts, i)
+    result
+
+export isDisplayAllowed(float _w, float _pctW, int _idx, float _lvlFrac,bool replayMode, int[] swingBars, int replayStartIdx, int barIndex,bool doAutoHide, float weightMinPct, string topNMode, int topN,int[] topIndices, float threshold, float biasVal) =>
+    bool ok = true
+    if replayMode and array.size(swingBars) > 0
+        int swingBarIdx = array.get(swingBars, replayStartIdx)
+        if barIndex < swingBarIdx
+            ok := false
+    if ok and doAutoHide and _pctW < weightMinPct
+        ok := false
+    if ok and topNMode == 'Strict' and topN > 0 and not array.includes(topIndices, _idx)
+        ok := false
+    if ok and topNMode != 'Strict' and _w < threshold
+        ok := false
+    if ok
+        if biasVal == 1 and _lvlFrac <= 1 and _lvlFrac != 1
+            ok := false
+        if biasVal == -1 and _lvlFrac >= 1 and _lvlFrac != 1
+            ok := false
+    ok
