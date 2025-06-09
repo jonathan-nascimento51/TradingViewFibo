@@ -3,7 +3,7 @@ indicator("tabelaEsn,Fractal,zonas", shorttitle="PRINCIPAL", overlay=true, max_l
 
 import joostraders/FractalUtils/1 as fractals
 import joostraders/FiboMath/1 as fibomath
-import joostraders/SwingDetection/3 as swing
+import joostraders/SwingDetection/4 as swing
 import joostraders/DrawingHelpers/1 as draw
 import joostraders/BiasUtils/1 as bias
 
@@ -265,7 +265,7 @@ if barstate.isfirst
 float threshold = minSignificance
 int[] topIndices = array.new_int()
 
-[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = swing.determineFib(pivotPrices, pivotTypes, pivotBars, biasVal, fibModeInput, minSwingBars, minSwingPct, fractalPrices)
+[fibP1, fibP2, fibP3, fibDir, fibModeActive, fibP1Bar, fibP2Bar, fibP3Bar, fibPbPct, fibBreakout] = swing.determineFib(pivotPrices, pivotTypes, pivotBars, biasVal, fibModeInput, minSwingBars, minSwingPct, atrLength, fractalPrices)
 
 if showDiagnostics and not na(fibP1)
     string txtDiag = "Modo: " + fibModeActive + "\n"
