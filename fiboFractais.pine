@@ -412,7 +412,7 @@ if not na(fibP1) and not na(fibP2)
 
             styleLine = (isTop or lvlFrac == 0.0 or lvlFrac == 1.0) ? line.style_solid : line.style_dotted
 
-            draw.updateFibLineAndLabel(bottomVal, topVal, rangeVal, fibLines, fibLabels, circleLabels, i, false, priceF, weight, color.gray, 1, line.style_dotted, trendDir)
+            draw.updateFibLineAndLabel(bottomVal, topVal, rangeVal, fibLines, fibLabels, circleLabels, i, true, priceF, weight, baseColorAdj, lw, styleLine, trendDir)
     else
         draw.hideFibElements(bottomVal, topVal, rangeVal, fibLines, fibLabels, circleLabels, fibPivotLabels)
     if showFibPivots and not na(fibP1Bar) and not na(fibP2Bar)
