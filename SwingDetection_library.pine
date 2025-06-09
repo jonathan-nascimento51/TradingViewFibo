@@ -40,7 +40,7 @@ export getStrongestSwing(float[] pivotPrices, string[] pivotTypes, int[] pivotBa
                     bestRange := rangePct
     [gp1, gp2, gp3, gdir, gb1, gb2, gb3]
 
-export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float biasVal) =>
+export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float biasVal, float[] _fractalPrices) =>
     int cnt = array.size(_pivots)
     float bestScore = -1.0
     float _p1 = na
@@ -50,6 +50,7 @@ export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float b
     int _p2Bar = na
     int _p3Bar = na
     int _dir = 0
+
     if cnt >= 3 and array.size(_types) >= 3 and array.size(_bars) >= 3
         for i = 0 to cnt - 3
             string t1 = array.get(_types, i)
@@ -61,16 +62,53 @@ export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float b
             int b1 = array.get(_bars, i)
             int b2 = array.get(_bars, i + 1)
             int b3 = array.get(_bars, i + 2)
-            int dur1 = b2 - b1
-            int dur2 = b3 - b2
-            float ranges = math.abs(p2 - p1)
-            float pb = math.abs(p2 - p3)
-            float pbRatio = ranges > 0 ? pb / ranges : 0.0
+
             bool isUp = (t1 == 'L' and t2 == 'H' and t3 == 'L')
             bool isDn = (t1 == 'H' and t2 == 'L' and t3 == 'H')
             int dir = isUp ? 1 : isDn ? -1 : 0
+
             if dir != 0
-                float score = ranges * pbRatio * (dur1 + dur2) * (biasVal == dir ? 1.5 : 1.0)
+                // --- INÍCIO DA LÓGICA DE SCORE MELHORADA ---
+
+                // 1. Fator de Amplitude (Range)
+                float rangeP1P2 = math.abs(p2 - p1)
+
+                // 2. Fator de Duração
+                int duration = b3 - b1
+
+                // 3. Fator de Qualidade do Pullback (NOVA LÓGICA)
+                float pbRatio = rangeP1P2 > 0 ? math.abs(p2 - p3) / rangeP1P2 : 0.0
+                float pbQualityScore = 0.0
+                if pbRatio >= 0.382 and pbRatio <= 0.618
+                    pbQualityScore := 1.0 // Zona ótima, pontuação máxima
+                else if pbRatio > 0.618 and pbRatio <= 0.786
+                    pbQualityScore := 0.5 // Pullback profundo, mas aceitável
+                else if pbRatio > 0.236 and pbRatio < 0.382
+                    pbQualityScore := 0.3 // Pullback superficial, menos ideal
+                else
+                    pbQualityScore := 0.1 // Fora das zonas ideais, pontuação mínima para não zerar o score
+
+                // 4. Fator de Confluência de Fractals (NOVA LÓGICA)
+                int confluenceCount = 0
+                if array.size(_fractalPrices) > 0
+                    float topOfRange = math.max(p1, p2)
+                    float bottomOfRange = math.min(p1, p2)
+                    for fPrice in _fractalPrices
+                        if fPrice >= bottomOfRange and fPrice <= topOfRange
+                            confluenceCount += 1
+
+                // Usamos (confluenceCount + 1) para evitar multiplicar por zero e dar um peso base.
+                float confluenceScore = confluenceCount + 1
+
+                // 5. Fator de Viés
+                float biasFactor = (biasVal == dir ? 1.5 : 1.0)
+
+                // 6. Cálculo do Score Final
+                // Adicionamos o novo confluenceScore à fórmula
+                float score = rangeP1P2 * pbQualityScore * duration * confluenceScore * biasFactor
+
+                // --- FIM DA LÓGICA DE SCORE MELHORADA ---
+
                 if score > bestScore
                     bestScore := score
                     _p1 := p1
@@ -80,6 +118,7 @@ export getStrongestPivots(float[] _pivots, string[] _types, int[] _bars, float b
                     _p2Bar := b2
                     _p3Bar := b3
                     _dir := dir
+
     [_p1, _p2, _p3, _p1Bar, _p2Bar, _p3Bar, _dir]
 
 export hasImpulseBreakout(int _dir, float _p2, float atrValue) =>
@@ -94,7 +133,8 @@ export isBreakoutCandle() =>
     float atrNow = ta.atr(14)
     body > 1.2 * atrNow and close > open
 
-export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float atrValue) =>
+//export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float atrValue, float[] fractalPrices, int[] fractalTouches) =>
+export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, float biasVal, string fibModeInput, int minSwingBars, float minSwingPct, float[] fractalPrices) =>
     float _p1 = na
     float _p2 = na
     float _p3 = na
@@ -103,7 +143,7 @@ export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, f
     int   _p1Bar = na
     int   _p2Bar = na
     int   _p3Bar = na
-    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars, biasVal)
+    [sp1, sp2, sp3, sp1Bar, sp2Bar, sp3Bar, spDir] = getStrongestPivots(pivotPrices, pivotTypes, pivotBars, biasVal, fractalPrices)
     [sgP1, sgP2, sgP3, sgDir, sgB1, sgB2, sgB3] = getStrongestSwing(pivotPrices, pivotTypes, pivotBars, minSwingPct, minSwingBars, biasVal)
     int cnt = array.size(pivotPrices)
     if not na(sp1)
@@ -164,20 +204,24 @@ export determineFib(float[] pivotPrices, string[] pivotTypes, int[] pivotBars, f
                 _dir := -1
     float pbPct = na
     bool breakout = false
-    bool brkCndl = isBreakoutCandle()
+    //bool brkCndl = isBreakoutCandle()
     if not na(_p1) and not na(_p2)
         if not na(_p3)
             pbPct := _dir == 1 ? (_p2 - _p3) / (_p2 - _p1) : (_p3 - _p2) / (_p1 - _p2)
-            breakout := hasImpulseBreakout(_dir, _p2, atrValue) and brkCndl
+            //breakout := hasImpulseBreakout(_dir, _p2, atrValue) and brkCndl
         string m = fibModeInput
         if fibModeInput == 'Auto'
-            if breakout
-                if not na(pbPct) and pbPct > 0.618
-                    m := 'Projection'
-                else
-                    m := 'Extension'
-            else
-                m := 'Retracement'
+            // if breakout
+            //     if not na(pbPct) and pbPct > 0.618
+            //         m := 'Projection'
+            //     else
+            //         m := 'Extension'
+            // else
+            //     m := 'Retracement'
+
+            // A lógica 'Auto' pode ser refinada depois.
+            m := 'Retracement'  
+          
         if biasVal != 0 and _dir != biasVal
             m := 'Retracement'
         _mode := m
